@@ -55,7 +55,7 @@ export function seedBoardForCompany(slug?: string): NexusBoardData {
     return { jobs: gffJobs, equipment: gffEquipment, tools: gffTools, inventory: gffInventory, issues: [
       { id: "issue-gff-001", name: "Need clean territory notes", title: "Need clean territory notes", severity: "Medium", status: "Open", owner: "Sam", dept: "Sales", notes: ["Make every rep log no-answer, maybe, and sold consistently."] },
       { id: "issue-gff-002", name: "Door hanger stock low", title: "Door hanger stock low", severity: "Low", status: "Open", owner: "JJ", dept: "Sales", notes: ["Restock before the next out-of-town run."] },
-    ], staff: staffFromCrews(gffCrews, "Sam", "JJ"), requests: [] };
+    ], staff: staffFromCrews(gffCrews, "Sam", "JJ"), requests: [], checkouts: [] };
   }
-  return { jobs: joesJobs, equipment: joesEquipment, tools: joesTools, inventory: categorizedInventory, issues: [], staff: staffFromCrews(joesCrews, "Joe", "Amanda"), requests: [] };
+  return { jobs: joesJobs, equipment: joesEquipment, tools: joesTools, inventory: categorizedInventory, issues: [], staff: staffFromCrews(joesCrews, "Joe", "Amanda"), requests: [], checkouts: [] };
 }

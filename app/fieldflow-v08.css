@@ -87,3 +87,10 @@ h1,h2,h3,.ff-title h2,.ff-brand h1,.nexus-admin-brand h1{font-family:"Space Grot
 .nexus-password-field input:focus{border-color:#7B61FF;box-shadow:0 0 0 4px rgba(123,97,255,.13);}
 .nexus-sync-pill{display:inline-flex;align-items:center;min-height:38px;border:1px solid rgba(20,224,201,.25);background:rgba(20,224,201,.10);color:#0f766e;border-radius:999px;padding:0 12px;font-weight:900;font-size:12px;}
 @media(max-width:900px){.nexus-brand-plate img{width:min(420px,96%)!important}.ff-logo.ff-nexus-logo{width:64px!important;height:64px!important}.nexus-sync-pill{display:none}}
+
+.ff-asset-picklist{display:grid;gap:8px;max-height:260px;overflow:auto;padding:10px;border:1px solid #d9e2dc;border-radius:16px;background:#f8faf7}
+.ff-asset-picklist.crew-picklist{max-height:340px}
+.ff-request-actions{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.ff-request-form .wide{grid-column:1 / -1}
+.ff-mobile-menu{display:none;border:1px solid #d8ddd7;background:#fff;border-radius:12px;padding:9px 12px;font-weight:900}
+@media(max-width:860px){.ff-mobile-menu{display:inline-flex}.ff-sidebar{transform:translateX(-105%)}.ff-sidebar.open{transform:translateX(0)}}

@@ -10,6 +10,7 @@ export type NexusBoardData = {
   issues: any[];
   staff: any[];
   requests: any[];
+  checkouts?: any[];
   updatedAt?: string;
   companySlug?: string;
 };
@@ -56,10 +57,41 @@ export async function loadLiveBoard(slug: string, fallback: NexusBoardData): Pro
 }
 
 export async function saveLiveBoard(slug: string, data: NexusBoardData) {
-  const clean = { ...data, companySlug: slug, updatedAt: new Date().toISOString() };
+  const clean = { ...data, companySlug: slug, checkouts: data.checkouts || [], updatedAt: new Date().toISOString() };
   saveLocalBoard(slug, clean);
   if (!hasSupabaseEnv || !supabase) return { ok: true, mode: "local" as const, message: "Saved locally." };
   const { error } = await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
   if (error) return { ok: false, mode: "supabase" as const, message: error.message };
   return { ok: true, mode: "supabase" as const, message: "Saved live." };
+}
+
+
+export function subscribeLiveBoard(slug: string, onBoard: (data: NexusBoardData) => void, onStatus?: (message: string) => void) {
+  if (!hasSupabaseEnv || !supabase) {
+    onStatus?.("Realtime off: Supabase env missing.");
+    return () => {};
+  }
+
+  const client = supabase;
+  if (!client) return () => {};
+
+  const channel = client
+    .channel(`nexus-company-data:${slug}`)
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "nexus_company_data", filter: `slug=eq.${slug}` },
+      (payload) => {
+        const next = (payload.new as any)?.data as NexusBoardData | undefined;
+        if (!next || next.companySlug !== slug) return;
+        saveLocalBoard(slug, next);
+        onBoard({ ...next, checkouts: next.checkouts || [] });
+        onStatus?.("Live update received.");
+      }
+    )
+    .subscribe((status) => {
+      if (status === "SUBSCRIBED") onStatus?.("Realtime connected.");
+      if (status === "CHANNEL_ERROR") onStatus?.("Realtime channel error. Check Supabase realtime/RLS.");
+    });
+
+  return () => { client.removeChannel(channel); };
 }

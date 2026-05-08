@@ -59,3 +59,12 @@ create policy "nexus_company_data_write" on public.nexus_company_data for all to
 insert into storage.buckets (id, name, public)
 values ('fieldflow-media', 'fieldflow-media', true)
 on conflict (id) do update set public = true;
+
+-- Realtime support for manager/crew screens. Safe if already added.
+do $$
+begin
+  begin
+    alter publication supabase_realtime add table public.nexus_company_data;
+  exception when duplicate_object then null;
+  end;
+end $$;
