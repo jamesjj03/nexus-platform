@@ -2,19 +2,57 @@ import { equipment as joesEquipment, jobs as joesJobs, tools as joesTools, crews
 import { categorizedInventory } from "@/lib/v2Additions";
 import type { NexusBoardData } from "./liveStore";
 
-const perms = ["edit_inventory", "edit_equipment", "edit_issues", "manage_staff", "approve_requests"];
+const companyAdminPerms = ["manage_company_admins", "manage_managers", "manage_staff", "approve_requests", "edit_jobs", "edit_inventory", "edit_equipment", "edit_issues", "post_messages"];
+const managerPerms = ["manage_staff", "approve_requests", "edit_jobs", "edit_inventory", "edit_equipment", "edit_issues", "post_messages"];
+const leadPerms = ["approve_requests", "edit_jobs", "edit_inventory", "edit_equipment", "post_messages"];
+const crewPerms = ["request_assets", "upload_media", "post_messages"];
+
+function id(name: string) { return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, ""); }
+function firstPassword(name: string) { return name.trim().split(/\s+/)[0].toLowerCase(); }
+function staff(name: string, role: string, crew: string, dept: string, pin: string, accessLevel: string, permissions: string[]) {
+  return { id: id(name), name, role, crew, dept, status: "Active", available: "Now", pin, tempPin: pin, password: firstPassword(name), mustChangePassword: true, accessLevel, permissions };
+}
+
+const joesStaff = [
+  staff("Chad", "Company Admin", "Office", "Office", "5100", "company_admin", companyAdminPerms),
+  staff("Jeanette", "Office Manager", "Office", "Office", "5101", "company_admin", companyAdminPerms),
+  staff("Jamie", "Office Manager", "Office", "Office", "5102", "company_admin", companyAdminPerms),
+  staff("Bill", "Manager", "Management", "Operations", "5103", "manager", managerPerms),
+  staff("Jose", "Crew Lead", "Jose's Crew", "Landscape / Construction", "5201", "crew_lead", leadPerms),
+  staff("Justin", "Crew Lead", "Justin's Crew", "Maintenance", "5202", "crew_lead", leadPerms),
+  staff("Lil Chad", "Crew Lead", "Lil Chad's Crew", "Mulch", "5203", "crew_lead", leadPerms),
+  staff("Jim", "Crew Lead", "Jim's Crew", "Landscape / Construction", "5204", "crew_lead", leadPerms),
+  staff("Pimpon", "Crew Member", "Jose's Crew", "Landscape / Construction", "5301", "crew", crewPerms),
+  staff("Angel", "Crew Member", "Jose's Crew", "Landscape / Construction", "5302", "crew", crewPerms),
+  staff("Moises", "Crew Member", "Jose's Crew", "Landscape / Construction", "5303", "crew", crewPerms),
+  staff("Jacob", "Crew Member", "Justin's Crew", "Maintenance", "5304", "crew", crewPerms),
+  staff("Ethan", "Crew Member", "Justin's Crew", "Maintenance", "5305", "crew", crewPerms),
+  staff("Taylor", "Greenhouse Lead", "Greenhouse", "Greenhouse", "5205", "manager", [...leadPerms, "manage_departments"]),
+  staff("Wes", "Maintenance", "Maintenance", "Maintenance", "5306", "crew", crewPerms),
+  staff("Brandon", "Maintenance", "Maintenance", "Maintenance", "5307", "crew", crewPerms),
+  staff("Austin", "Maintenance", "Maintenance", "Maintenance", "5308", "crew", crewPerms),
+];
+
+const joesCrewsClean = [
+  { id: "crew-office", name: "Office", status: "Active", lead: "Chad", people: ["Jeanette", "Jamie"], available: "Now", dept: "Office", notes: ["Scheduling, quotes, billing, and company admin."] },
+  { id: "crew-management", name: "Management", status: "Active", lead: "Bill", people: [], available: "Now", dept: "Operations", notes: ["Daily field manager oversight."] },
+  { id: "crew-jose", name: "Jose's Crew", status: "Active", lead: "Jose", people: ["Pimpon", "Angel", "Moises"], available: "Now", dept: "Landscape / Construction", notes: ["Construction, grading, hardscape, excavation support."] },
+  { id: "crew-justin", name: "Justin's Crew", status: "Active", lead: "Justin", people: ["Jacob", "Ethan"], available: "Now", dept: "Maintenance", notes: ["Commercial route and equipment checks."] },
+  { id: "crew-lil-chad", name: "Lil Chad's Crew", status: "Active", lead: "Lil Chad", people: [], available: "Now", dept: "Mulch", notes: ["Mulch and cleanup jobs."] },
+  { id: "crew-jim", name: "Jim's Crew", status: "Active", lead: "Jim", people: [], available: "Now", dept: "Landscape / Construction", notes: ["General install and landscape support."] },
+  { id: "crew-greenhouse", name: "Greenhouse", status: "Active", lead: "Taylor", people: [], available: "Now", dept: "Greenhouse", notes: ["Plants, greenhouse inventory, plant care, and seasonal material staging."] },
+  { id: "crew-maintenance", name: "Maintenance", status: "Active", lead: "Wes", people: ["Brandon", "Austin"], available: "Now", dept: "Maintenance", notes: ["Equipment upkeep, shop support, fixes, and odd jobs."] },
+];
 
 function staffFromCrews(crews: any[], ownerName: string, managerName: string) {
-  const staff: any[] = [];
-  crews.forEach((crew: any) => {
-    staff.push({ id: `${crew.id}-lead`, name: crew.lead, role: "Crew Lead", crew: crew.name, status: crew.status, available: crew.available, permissions: ["edit_inventory", "edit_equipment"] });
-    (crew.people || []).forEach((person: string, index: number) => {
-      staff.push({ id: `${crew.id}-${index}`, name: person, role: "Crew Member", crew: crew.name, status: crew.status, available: crew.available, permissions: [] });
-    });
+  const staffList: any[] = [];
+  crews.forEach((crew: any, crewIndex: number) => {
+    staffList.push(staff(crew.lead, crewIndex === 0 ? "Company Admin" : "Crew Lead", crew.name, crew.dept || "Operations", String(6100 + crewIndex), crewIndex === 0 ? "company_admin" : "crew_lead", crewIndex === 0 ? companyAdminPerms : leadPerms));
+    (crew.people || []).forEach((person: string, index: number) => staffList.push(staff(person, "Crew Member", crew.name, crew.dept || "Operations", String(6200 + crewIndex * 10 + index), "crew", crewPerms)));
   });
-  staff.push({ id: `${managerName.toLowerCase().replace(/[^a-z0-9]/g, "-")}-manager`, name: managerName, role: "Manager", crew: "Office", status: "Active", available: "Now", permissions: perms });
-  staff.push({ id: `${ownerName.toLowerCase().replace(/[^a-z0-9]/g, "-")}-owner`, name: ownerName, role: "Owner", crew: "Admin", status: "Active", available: "Now", permissions: perms });
-  return staff;
+  staffList.push(staff(managerName, "Manager", "Office", "Office", "6001", "manager", managerPerms));
+  staffList.push(staff(ownerName, "Company Admin", "Admin", "Admin", "6000", "company_admin", companyAdminPerms));
+  return staffList;
 }
 
 const gffCrews = [
@@ -55,7 +93,20 @@ export function seedBoardForCompany(slug?: string): NexusBoardData {
     return { jobs: gffJobs, equipment: gffEquipment, tools: gffTools, inventory: gffInventory, issues: [
       { id: "issue-gff-001", name: "Need clean territory notes", title: "Need clean territory notes", severity: "Medium", status: "Open", owner: "Sam", dept: "Sales", notes: ["Make every rep log no-answer, maybe, and sold consistently."] },
       { id: "issue-gff-002", name: "Door hanger stock low", title: "Door hanger stock low", severity: "Low", status: "Open", owner: "JJ", dept: "Sales", notes: ["Restock before the next out-of-town run."] },
-    ], staff: staffFromCrews(gffCrews, "Sam", "JJ"), requests: [], checkouts: [] };
+    ], staff: staffFromCrews(gffCrews, "Sam", "JJ"), crews: gffCrews, messages: [], requests: [], checkouts: [] };
   }
-  return { jobs: joesJobs, equipment: joesEquipment, tools: joesTools, inventory: categorizedInventory, issues: [], staff: staffFromCrews(joesCrews, "Joe", "Amanda"), requests: [], checkouts: [] };
+  return {
+    jobs: joesJobs.map((j:any) => j.crew === "Chad's Crew" ? { ...j, crew: "Lil Chad's Crew" } : j),
+    equipment: joesEquipment,
+    tools: joesTools,
+    inventory: categorizedInventory,
+    issues: [],
+    staff: joesStaff,
+    crews: joesCrewsClean,
+    messages: [
+      { id: "msg-welcome", title: "Morning board", body: "Use requests for exact equipment/tools and tag the job when it belongs to one.", audience: "All", author: "Chad", createdAt: new Date().toISOString() }
+    ],
+    requests: [],
+    checkouts: []
+  };
 }

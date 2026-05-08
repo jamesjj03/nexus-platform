@@ -9,6 +9,8 @@ export type NexusBoardData = {
   inventory: any[];
   issues: any[];
   staff: any[];
+  crews?: any[];
+  messages?: any[];
   requests: any[];
   checkouts?: any[];
   updatedAt?: string;
@@ -57,7 +59,7 @@ export async function loadLiveBoard(slug: string, fallback: NexusBoardData): Pro
 }
 
 export async function saveLiveBoard(slug: string, data: NexusBoardData) {
-  const clean = { ...data, companySlug: slug, checkouts: data.checkouts || [], updatedAt: new Date().toISOString() };
+  const clean = { ...data, companySlug: slug, crews: data.crews || [], messages: data.messages || [], checkouts: data.checkouts || [], updatedAt: new Date().toISOString() };
   saveLocalBoard(slug, clean);
   if (!hasSupabaseEnv || !supabase) return { ok: true, mode: "local" as const, message: "Saved locally." };
   const { error } = await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
@@ -84,7 +86,7 @@ export function subscribeLiveBoard(slug: string, onBoard: (data: NexusBoardData)
         const next = (payload.new as any)?.data as NexusBoardData | undefined;
         if (!next || next.companySlug !== slug) return;
         saveLocalBoard(slug, next);
-        onBoard({ ...next, checkouts: next.checkouts || [] });
+        onBoard({ ...next, crews: next.crews || [], messages: next.messages || [], checkouts: next.checkouts || [] });
         onStatus?.("Live update received.");
       }
     )
