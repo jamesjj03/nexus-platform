@@ -1,5 +1,7 @@
 "use client";
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -7,7 +9,7 @@ import { Copy, Download, Eye, Plus, Rocket, Save, ShieldCheck, Trash2, UploadClo
 import { TemplateKey, templates } from "@/lib/v2Data";
 import { FieldFlowCompanyConfig, cacheCompanies, defaultCompanyConfig, deleteCompanyConfig, saveCompany, slugifyCompanyName, uploadCompanyFile } from "@/lib/fieldflow/companyConfig";
 import { useCompanies } from "@/lib/fieldflow/useCompanies";
-import { getDeviceSession, clearDeviceSession } from "@/lib/fieldflow/deviceAuth";
+import { fetchDeviceSession, logoutDeviceSession } from "@/lib/fieldflow/deviceAuth";
 
 const steps = ["Company", "Access", "Modules", "Theme", "Media", "Publish"] as const;
 const nexusTheme = { primary: "#14E0C9", accent: "#FF4FA3", background: "#F6F8FB", panel: "#ffffff" };
@@ -36,7 +38,7 @@ export function StudioAdmin() {
   const [uploading, setUploading] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState("");
 
-  useEffect(() => { const session = getDeviceSession(); if (!session || session.role !== "owner") router.replace("/"); }, [router]);
+  useEffect(() => { fetchDeviceSession().then((session) => { if (!session || session.role !== "owner") router.replace("/"); }).catch(() => router.replace("/")); }, [router]);
 
   useEffect(() => {
     const safeTemplate = templateKeys.includes(activeCompany.template as TemplateKey) ? activeCompany.template as TemplateKey : "general";
@@ -65,7 +67,7 @@ export function StudioAdmin() {
       <div className="nexus-step-list">{steps.map((s)=><button key={s} onClick={()=>setStep(s)} className={step===s?"active":""}>{s}</button>)}</div>
     </aside>
     <section className="nexus-admin-main">
-      <header className="nexus-admin-top"><div><p className="nexus-eyebrow">Full platform control</p><h2>Company builder</h2><p>Create companies, choose modules, theme the shell, and publish clean configs. Individual staff PINs live inside each company board.</p></div><div className="nexus-admin-actions"><Link href="/"><Eye size={16}/> Login</Link><Link href={`/${config.slug}/dashboard`}><Eye size={16}/> Manager</Link><Link href={`/${config.slug}/crew`}><Eye size={16}/> Crew</Link><button onClick={copy}><Copy size={16}/> Copy</button><button onClick={download}><Download size={16}/> Export</button><button onClick={()=>{ clearDeviceSession(); router.push("/"); }}>Logout</button><button className="save" onClick={saveLive}><Save size={16}/> Save Live</button></div></header>
+      <header className="nexus-admin-top"><div><p className="nexus-eyebrow">Full platform control</p><h2>Company builder</h2><p>Create companies, choose modules, theme the shell, and publish clean configs. Individual staff PINs live inside each company board.</p></div><div className="nexus-admin-actions"><Link href="/"><Eye size={16}/> Login</Link><Link href={`/${config.slug}/dashboard`}><Eye size={16}/> Manager</Link><Link href={`/${config.slug}/crew`}><Eye size={16}/> Crew</Link><button onClick={copy}><Copy size={16}/> Copy</button><button onClick={download}><Download size={16}/> Export</button><button onClick={async ()=>{ await logoutDeviceSession(); router.push("/"); }}>Logout</button><button className="save" onClick={saveLive}><Save size={16}/> Save Live</button></div></header>
       <div className="nexus-status">{status}</div>
       <div className="nexus-admin-grid"><section className="nexus-editor-card"><h3>{step}</h3>
         {step === "Company" && <div className="nexus-form-grid"><label><span>Company name</span><input value={draft.companyName} onChange={(e)=>{ const name=e.target.value; setDraft(d=>({...d, companyName:name, slug: d.slug.startsWith("new-company") ? slugifyCompanyName(name) : d.slug })); }} /></label><label><span>Company slug</span><input value={draft.slug} onChange={(e)=>patch("slug", slugifyCompanyName(e.target.value))} /></label><div className="nexus-template-grid">{templateKeys.map((k)=><button key={k} onClick={()=>applyTemplate(k)} className={template===k?"active":""}><strong>{templates[k].label}</strong><small>{templates[k].description}</small></button>)}</div><div className="nexus-danger"><strong>Delete company</strong><p>Type the slug exactly, then delete. Drafts are not saved until Save Live.</p><input value={confirmDelete} onChange={(e)=>setConfirmDelete(e.target.value)} placeholder={`Type ${config.slug}`} /><button onClick={removeCompany}><Trash2 size={16}/> Delete</button></div></div>}

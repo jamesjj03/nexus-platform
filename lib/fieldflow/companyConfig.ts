@@ -1,7 +1,5 @@
 "use client";
 
-import { supabase, hasSupabaseEnv } from "@/lib/supabase/client";
-
 export type FieldFlowTheme = {
   primary: string;
   accent: string;
@@ -59,9 +57,9 @@ export const defaultCompanyConfig: FieldFlowCompanyConfig = {
   },
   modules: ["Jobs", "Crews", "Equipment", "Tools", "Inventory", "Issues", "Media", "Quotes", "Staff"],
   labels: { work: "Jobs", people: "Crews", assets: "Equipment" },
-  pins: { admin: "5000", manager: "5001", crew: "5002", media: "5003" },
-  access: { pinStart: "5000", pinEnd: "5099", companyAdminPin: "5000", managerPin: "5001", crewPin: "5002", mediaPin: "5003" },
-  passwords: { admin: "joeadmin", manager: "joemanager", crew: "joecrew", media: "joemedia" },
+  pins: { admin: "", manager: "", crew: "", media: "" },
+  access: {},
+  passwords: {},
 };
 
 export const gffCompanyConfig: FieldFlowCompanyConfig = {
@@ -76,9 +74,9 @@ export const gffCompanyConfig: FieldFlowCompanyConfig = {
   },
   modules: ["Leads", "Reps", "Territories", "Installs", "Follow-Ups", "Media", "Reports", "Staff"],
   labels: { work: "Leads", people: "Reps", assets: "Sales Kits" },
-  pins: { admin: "6000", manager: "6001", crew: "6002", media: "6003" },
-  access: { pinStart: "6000", pinEnd: "6099", companyAdminPin: "6000", managerPin: "6001", crewPin: "6002", mediaPin: "6003" },
-  passwords: { admin: "gffadmin", manager: "gffmanager", crew: "gffcrew", media: "gffmedia" },
+  pins: { admin: "", manager: "", crew: "", media: "" },
+  access: {},
+  passwords: {},
 };
 
 export const defaultCompanyConfigs: FieldFlowCompanyConfig[] = [defaultCompanyConfig, gffCompanyConfig];
@@ -92,43 +90,6 @@ export function slugifyCompanyName(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "") || "company";
 }
-
-function fromRow(row: any): FieldFlowCompanyConfig {
-  const pinMeta = row.pins ?? {};
-  return {
-    slug: row.slug,
-    companyName: row.company_name ?? row.companyName ?? defaultCompanyConfig.companyName,
-    template: row.template ?? defaultCompanyConfig.template,
-    theme: row.theme ?? defaultCompanyConfig.theme,
-    modules: row.modules ?? defaultCompanyConfig.modules,
-    labels: row.labels ?? defaultCompanyConfig.labels,
-    logoUrl: row.logo_url ?? row.logoUrl ?? undefined,
-    pins: row.pins ?? defaultCompanyConfig.pins,
-    passwords: row.passwords ?? row.role_passwords ?? row.rolePasswords ?? pinMeta.__passwords ?? defaultCompanyConfig.passwords,
-    access: row.access ?? row.pin_range ?? row.pinRange ?? pinMeta.__access ?? defaultCompanyConfig.access,
-    updatedAt: row.updated_at ?? row.updatedAt,
-  };
-}
-
-function toRow(config: FieldFlowCompanyConfig) {
-  const pinsWithMeta = {
-    ...(config.pins ?? defaultCompanyConfig.pins),
-    __access: config.access ?? defaultCompanyConfig.access,
-    __passwords: config.passwords ?? defaultCompanyConfig.passwords,
-  };
-  return {
-    slug: config.slug,
-    company_name: config.companyName,
-    template: config.template,
-    theme: config.theme,
-    modules: config.modules,
-    labels: config.labels,
-    logo_url: config.logoUrl ?? null,
-    pins: pinsWithMeta,
-    updated_at: new Date().toISOString(),
-  };
-}
-
 
 export function getCompanyAliasMap(): Record<string, string> {
   if (typeof window === "undefined") return {};
@@ -215,56 +176,50 @@ export function applyCompanyTheme(config: FieldFlowCompanyConfig) {
 
 export async function loadCompanies(): Promise<FieldFlowCompanyConfig[]> {
   const fallback = getCachedCompanies();
-  if (!hasSupabaseEnv || !supabase) return fallback;
-
-  const { data, error } = await supabase
-    .from("company_configs")
-    .select("*")
-    .order("company_name", { ascending: true });
-
-  if (error) {
-    console.warn("FieldFlow company load failed:", error.message);
+  try {
+    const res = await fetch("/api/nexus/companies", { cache: "no-store" });
+    if (!res.ok) return fallback;
+    const data = await res.json();
+    const companies = normalizeCompanies(data.companies?.length ? data.companies : fallback);
+    cacheCompanies(companies);
+    return companies;
+  } catch (error: unknown) {
+    console.warn("Nexus company load failed:", error instanceof Error ? error.message : "Unknown error");
     return fallback;
   }
-
-  const companies = normalizeCompanies(data?.length ? data.map(fromRow) : fallback);
-  cacheCompanies(companies);
-  return companies;
 }
 
 export async function saveCompany(config: FieldFlowCompanyConfig) {
   const cached = getCachedCompanies();
   const next = [config, ...cached.filter((c) => c.slug !== config.slug)];
   cacheCompanies(next);
-
-  if (!hasSupabaseEnv || !supabase) {
-    return { ok: true, mode: "local" as const, message: "Saved locally. Supabase env is not connected." };
+  try {
+    const res = await fetch("/api/nexus/companies", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(config),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, mode: "supabase" as const, message: data.error || "Save failed." };
+    return { ok: true, mode: "supabase" as const, message: "Saved live to Supabase." };
+  } catch (error: unknown) {
+    return { ok: false, mode: "supabase" as const, message: error instanceof Error ? error.message : "Save failed." };
   }
-
-  const row = toRow(config);
-  const { error } = await supabase.from("company_configs").upsert(row, { onConflict: "slug" });
-  if (!error) return { ok: true, mode: "supabase" as const, message: "Saved live to Supabase." };
-
-  // Fallback for older Supabase schemas. Keep access/password data nested inside pins so
-  // we do not require separate access/passwords columns.
-  const minimal = { slug: row.slug, company_name: row.company_name, template: row.template, theme: row.theme, modules: row.modules, labels: row.labels, logo_url: row.logo_url, pins: row.pins, updated_at: row.updated_at };
-  const retry = await supabase.from("company_configs").upsert(minimal, { onConflict: "slug" });
-  if (retry.error) return { ok: false, mode: "supabase" as const, message: retry.error.message };
-  return { ok: true, mode: "supabase" as const, message: "Saved live to Supabase." };
 }
 
 export async function uploadCompanyFile(slug: string, file: File, bucket = "fieldflow-media") {
-  if (!hasSupabaseEnv || !supabase) {
-    return { ok: false, url: "", message: "Supabase is not connected, so uploads are local-preview only." };
+  const form = new FormData();
+  form.set("slug", slug);
+  form.set("bucket", bucket);
+  form.set("file", file);
+  try {
+    const res = await fetch("/api/nexus/upload", { method: "POST", body: form });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, url: "", message: data.error || "Upload failed." };
+    return { ok: true, url: data.url, message: "Uploaded." };
+  } catch (error: unknown) {
+    return { ok: false, url: "", message: error instanceof Error ? error.message : "Upload failed." };
   }
-
-  const safeName = file.name.toLowerCase().replace(/[^a-z0-9._-]+/g, "-");
-  const path = `${slug}/${Date.now()}-${safeName}`;
-  const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true });
-  if (error) return { ok: false, url: "", message: error.message };
-
-  const { data } = supabase.storage.from(bucket).getPublicUrl(path);
-  return { ok: true, url: data.publicUrl, message: "Uploaded." };
 }
 
 export async function deleteCompanyConfig(slug: string) {
@@ -272,11 +227,12 @@ export async function deleteCompanyConfig(slug: string) {
   const next = cached.filter((c) => c.slug !== slug);
   cacheCompanies(next.length ? next : [defaultCompanyConfig]);
 
-  if (!hasSupabaseEnv || !supabase) {
-    return { ok: true, mode: "local" as const, message: "Deleted locally. Supabase env is not connected." };
+  try {
+    const res = await fetch(`/api/nexus/companies/${encodeURIComponent(slug)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, mode: "supabase" as const, message: data.error || "Delete failed." };
+    return { ok: true, mode: "supabase" as const, message: "Deleted live from Supabase." };
+  } catch (error: unknown) {
+    return { ok: false, mode: "supabase" as const, message: error instanceof Error ? error.message : "Delete failed." };
   }
-
-  const { error } = await supabase.from("company_configs").delete().eq("slug", slug);
-  if (error) return { ok: false, mode: "supabase" as const, message: error.message };
-  return { ok: true, mode: "supabase" as const, message: "Deleted live from Supabase." };
 }

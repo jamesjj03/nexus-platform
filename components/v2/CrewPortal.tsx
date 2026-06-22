@@ -1,12 +1,14 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/purity */
+
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, ClipboardList, Hand, LayoutDashboard, LogOut, MessageSquare, Package, Search, Send, Truck, UploadCloud, Wrench } from "lucide-react";
 import { useCompanies } from "@/lib/fieldflow/useCompanies";
 import { uploadCompanyFile } from "@/lib/fieldflow/companyConfig";
-import { clearDeviceSession, getDeviceSession } from "@/lib/fieldflow/deviceAuth";
+import { fetchDeviceSession, logoutDeviceSession } from "@/lib/fieldflow/deviceAuth";
 import { inventoryCategories } from "@/lib/v2Additions";
 import { loadLiveBoard, saveLiveBoard, subscribeLiveBoard, type NexusBoardData } from "@/lib/fieldflow/liveStore";
 import { seedBoardForCompany } from "@/lib/fieldflow/seedBoards";
@@ -45,9 +47,9 @@ export function CrewPortal({ companySlug }: { companySlug?: string }) {
   const fallbackBoard = useMemo<NexusBoardData>(() => seedBoardForCompany(activeCompany.slug), [activeCompany.slug]);
   const [board, setBoard] = useState<Required<NexusBoardData>>(() => normalizeBoard(fallbackBoard, activeCompany.slug));
 
-  useEffect(() => { const session = getDeviceSession(); if (!session) router.replace("/"); if (companySlug && session && session.role !== "owner" && session.slug !== companySlug) router.replace("/"); }, [router, companySlug]);
+  useEffect(() => { fetchDeviceSession().then((session) => { if (!session) router.replace("/"); if (companySlug && session && session.role !== "owner" && session.slug !== companySlug) router.replace("/"); }).catch(() => router.replace("/")); }, [router, companySlug]);
   useEffect(() => { if (!loading && companySlug && activeCompany.slug !== companySlug) selectCompany(companySlug); }, [loading, companySlug, activeCompany.slug, selectCompany]);
-  useEffect(() => { let live = true; loadLiveBoard(activeCompany.slug, fallbackBoard).then((data) => { if (!live) return; const next = normalizeBoard(data, activeCompany.slug); setBoard(next); const session = getDeviceSession(); const person = session?.personName || next.staff[0]?.name || "Crew member"; setRequestBy(person); setRequestCrew(next.staff.find((p:any) => p.name === person)?.crew || next.staff[0]?.crew || "Crew A"); }); return () => { live = false; }; }, [activeCompany.slug, fallbackBoard]);
+  useEffect(() => { let live = true; loadLiveBoard(activeCompany.slug, fallbackBoard).then(async (data) => { if (!live) return; const next = normalizeBoard(data, activeCompany.slug); setBoard(next); const session = await fetchDeviceSession().catch(() => null); const person = session?.personName || next.staff[0]?.name || "Crew member"; setRequestBy(person); setRequestCrew(next.staff.find((p:any) => p.name === person)?.crew || next.staff[0]?.crew || "Crew A"); }); return () => { live = false; }; }, [activeCompany.slug, fallbackBoard]);
   useEffect(() => subscribeLiveBoard(activeCompany.slug, (data) => setBoard(normalizeBoard(data, activeCompany.slug)), setStatus), [activeCompany.slug]);
 
   const q = search.toLowerCase();
@@ -65,7 +67,7 @@ export function CrewPortal({ companySlug }: { companySlug?: string }) {
   const myRequests = board.requests.filter((r:any) => !requestBy || r.requestedBy === requestBy || r.crew === requestCrew).slice(0, 12);
 
   async function handleFile(file?: File) { if (!file) return; setStatus("Uploading..."); const result = await uploadCompanyFile(activeCompany.slug, file); const url = result.ok ? result.url : URL.createObjectURL(file); const jobName = jobOptions.find((j:any)=>j.id === selectedJobId)?.name || ""; setUploads((list) => [{ id: String(Date.now()), name: file.name, url, kind, note, jobId: selectedJobId, jobName }, ...list]); setStatus(result.ok ? "Uploaded live." : `${result.message} Local preview is showing.`); if (result.ok) setNote(""); }
-  function logout() { clearDeviceSession(); router.push("/"); }
+  async function logout() { await logoutDeviceSession(); router.push("/"); }
   function toggleAsset(id: string) { setSelectedAssets((ids) => ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]); }
   async function submitRequest(mode: "today" | "multi" = "multi", singleAssetId?: string) {
     const ids = singleAssetId ? [singleAssetId] : selectedAssets;

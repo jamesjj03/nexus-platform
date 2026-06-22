@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
 import { inventory as seedInventory } from "@/lib/v2Data";
 
 export const inventoryCategories = [

@@ -1,21 +1,12 @@
 "use client";
 
+import type { NexusLoginChallenge, NexusSession } from "@/lib/nexus/types";
+
 export type FieldFlowRole = "owner" | "admin" | "manager" | "crew";
 
-export type FieldFlowDeviceSession = {
-  slug: string;
-  role: FieldFlowRole;
-  remember: boolean;
-  signedInAt: string;
-  personId?: string;
-  personName?: string;
-  companyName?: string;
-  accessLevel?: string;
-  permissions?: string[];
-};
+export type FieldFlowDeviceSession = NexusSession;
 
 const SESSION_KEY = "nexus_device_session_v3";
-export const NEXUS_OWNER_PIN = "9999";
 
 export function getDeviceSession(): FieldFlowDeviceSession | null {
   if (typeof window === "undefined") return null;
@@ -37,11 +28,45 @@ export function clearDeviceSession() {
   localStorage.removeItem(SESSION_KEY);
 }
 
-export function roleFromStaff(person: any): FieldFlowRole {
-  const level = String(person?.accessLevel || person?.role || "").toLowerCase();
-  if (level.includes("company_admin") || level.includes("company admin") || level.includes("owner")) return "admin";
-  if (level.includes("manager") || level.includes("lead") || (person?.permissions || []).includes("approve_requests")) return "manager";
-  return "crew";
+async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(url, {
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+  });
+  const data = await res.json().catch(() => ({})) as { error?: string };
+  if (!res.ok) throw new Error(data.error || "Nexus request failed.");
+  return data as T;
+}
+
+export async function identifyPin(pin: string) {
+  return apiJson<NexusLoginChallenge>("/api/nexus/auth/identify", {
+    method: "POST",
+    body: JSON.stringify({ pin }),
+  });
+}
+
+export async function completeServerLogin(input: { challenge: string; password: string; newPassword?: string; remember: boolean }) {
+  const data = await apiJson<{ session: FieldFlowDeviceSession; route: string }>("/api/nexus/auth/login", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  saveDeviceSession(data.session);
+  return data;
+}
+
+export async function fetchDeviceSession() {
+  const data = await apiJson<{ session: FieldFlowDeviceSession | null; route: string }>("/api/nexus/session");
+  if (data.session) saveDeviceSession(data.session);
+  else clearDeviceSession();
+  return data.session;
+}
+
+export async function logoutDeviceSession() {
+  try {
+    await fetch("/api/nexus/session", { method: "DELETE" });
+  } finally {
+    clearDeviceSession();
+  }
 }
 
 export function routeForRole(role: string, slug?: string) {
@@ -57,8 +82,4 @@ export function roleLabel(role: string) {
   if (role === "manager") return "Manager";
   if (role === "crew") return "Crew";
   return "Secure sign-in";
-}
-
-export function defaultFirstPassword(name: string) {
-  return String(name || "").trim().split(/\s+/)[0]?.toLowerCase() || "password";
 }

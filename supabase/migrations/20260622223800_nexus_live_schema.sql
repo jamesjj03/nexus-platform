@@ -1,5 +1,4 @@
 -- Nexus live schema. Safe to rerun.
--- This version moves auth/data ownership to the Next.js server.
 -- Browser clients should not write these tables directly.
 
 create table if not exists public.company_configs (
@@ -64,10 +63,6 @@ drop policy if exists "nexus_staff_credentials_read" on public.nexus_staff_crede
 drop policy if exists "nexus_staff_credentials_write" on public.nexus_staff_credentials;
 drop policy if exists "nexus_sessions_read" on public.nexus_sessions;
 drop policy if exists "nexus_sessions_write" on public.nexus_sessions;
-
--- No anon/authenticated table policies are created here on purpose.
--- The Next.js server uses SUPABASE_SERVICE_ROLE_KEY and performs auth checks
--- before reading or writing. Service role bypasses RLS.
 
 do $$
 begin

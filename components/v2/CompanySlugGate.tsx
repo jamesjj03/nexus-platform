@@ -4,7 +4,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { useCompanies } from "@/lib/fieldflow/useCompanies";
-import { getDeviceSession, routeForRole } from "@/lib/fieldflow/deviceAuth";
+import { fetchDeviceSession, routeForRole } from "@/lib/fieldflow/deviceAuth";
 import { resolveCompanySlug, setActiveCompanySlug, applyCompanyTheme } from "@/lib/fieldflow/companyConfig";
 
 export function CompanySlugGate({ slug, target = "login" }: { slug: string; target?: "login" | "dashboard" | "tools" | "crew" | "admin" }) {
@@ -20,7 +20,7 @@ export function CompanySlugGate({ slug, target = "login" }: { slug: string; targ
       applyCompanyTheme(company);
     }
 
-    const session = getDeviceSession();
+    fetchDeviceSession().then((session) => {
     if (session?.remember && session.slug === resolved && target === "login") {
       router.replace(routeForRole(session.role, resolved));
       return;
@@ -31,6 +31,7 @@ export function CompanySlugGate({ slug, target = "login" }: { slug: string; targ
     else if (target === "crew") router.replace("/crew");
     else if (target === "admin") router.replace("/admin");
     else router.replace("/");
+    }).catch(() => router.replace("/"));
   }, [loading, companies, slug, target, router]);
 
   return (

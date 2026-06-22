@@ -1,21 +1,8 @@
 "use client";
 
-import { supabase, hasSupabaseEnv } from "@/lib/supabase/client";
+import type { NexusBoardData } from "@/lib/nexus/types";
 
-export type NexusBoardData = {
-  jobs: any[];
-  equipment: any[];
-  tools: any[];
-  inventory: any[];
-  issues: any[];
-  staff: any[];
-  crews?: any[];
-  messages?: any[];
-  requests: any[];
-  checkouts?: any[];
-  updatedAt?: string;
-  companySlug?: string;
-};
+export type { NexusBoardData };
 
 const prefix = "nexus_company_board_v1";
 export const boardKey = (slug: string) => `${prefix}:${slug}`;
@@ -42,58 +29,67 @@ export function saveLocalBoard(slug: string, data: NexusBoardData) {
 
 export async function loadLiveBoard(slug: string, fallback: NexusBoardData): Promise<NexusBoardData> {
   const local = loadLocalBoard(slug, fallback);
-  if (!hasSupabaseEnv || !supabase) return local;
-  const { data, error } = await supabase.from("nexus_company_data").select("data").eq("slug", slug).maybeSingle();
-  if (error || !data?.data) return local;
-  const liveData = data.data as NexusBoardData;
-  // Old builds saved the same board everywhere. If the stored payload is not stamped
-  // with this company slug, treat it as stale and reseed this company cleanly.
-  if (liveData.companySlug && liveData.companySlug !== slug) return local;
-  if (!liveData.companySlug) {
-    saveLocalBoard(slug, fallback);
-    await saveLiveBoard(slug, fallback);
-    return fallback;
+  try {
+    const res = await fetch(`/api/nexus/boards/${encodeURIComponent(slug)}`, { cache: "no-store" });
+    if (res.status === 401 || res.status === 403) return { ...fallback, companySlug: slug };
+    if (!res.ok) return local;
+    const data = await res.json();
+    const liveData = data.board as NexusBoardData;
+    const clean = { ...fallback, ...liveData, companySlug: slug };
+    saveLocalBoard(slug, clean);
+    return clean;
+  } catch {
+    return local;
   }
-  saveLocalBoard(slug, { ...fallback, ...liveData, companySlug: slug });
-  return { ...fallback, ...liveData, companySlug: slug };
 }
 
 export async function saveLiveBoard(slug: string, data: NexusBoardData) {
   const clean = { ...data, companySlug: slug, crews: data.crews || [], messages: data.messages || [], checkouts: data.checkouts || [], updatedAt: new Date().toISOString() };
   saveLocalBoard(slug, clean);
-  if (!hasSupabaseEnv || !supabase) return { ok: true, mode: "local" as const, message: "Saved locally." };
-  const { error } = await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
-  if (error) return { ok: false, mode: "supabase" as const, message: error.message };
-  return { ok: true, mode: "supabase" as const, message: "Saved live." };
+  try {
+    const res = await fetch(`/api/nexus/boards/${encodeURIComponent(slug)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ board: clean }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, mode: "supabase" as const, message: body.error || "Live save failed." };
+    if (body.board) saveLocalBoard(slug, body.board);
+    return { ok: true, mode: "supabase" as const, message: "Saved live." };
+  } catch (error: unknown) {
+    return { ok: false, mode: "supabase" as const, message: error instanceof Error ? error.message : "Live save failed." };
+  }
 }
 
-
 export function subscribeLiveBoard(slug: string, onBoard: (data: NexusBoardData) => void, onStatus?: (message: string) => void) {
-  if (!hasSupabaseEnv || !supabase) {
-    onStatus?.("Realtime off: Supabase env missing.");
-    return () => {};
+  if (typeof window === "undefined") return () => {};
+  onStatus?.("Live sync connected through Nexus API.");
+
+  async function refresh() {
+    try {
+      const res = await fetch(`/api/nexus/boards/${encodeURIComponent(slug)}`, { cache: "no-store" });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.board || data.board.companySlug !== slug) return;
+      saveLocalBoard(slug, data.board);
+      onBoard(data.board);
+      onStatus?.("Live update received.");
+    } catch {
+      onStatus?.("Live refresh paused.");
+    }
   }
 
-  const client = supabase;
-  if (!client) return () => {};
+  const onLocalUpdate = (event: Event) => {
+    const detail = (event as CustomEvent).detail;
+    if (detail?.slug !== slug) return;
+    const raw = localStorage.getItem(boardKey(slug));
+    if (raw) onBoard(JSON.parse(raw));
+  };
 
-  const channel = client
-    .channel(`nexus-company-data:${slug}`)
-    .on(
-      "postgres_changes",
-      { event: "*", schema: "public", table: "nexus_company_data", filter: `slug=eq.${slug}` },
-      (payload) => {
-        const next = (payload.new as any)?.data as NexusBoardData | undefined;
-        if (!next || next.companySlug !== slug) return;
-        saveLocalBoard(slug, next);
-        onBoard({ ...next, crews: next.crews || [], messages: next.messages || [], checkouts: next.checkouts || [] });
-        onStatus?.("Live update received.");
-      }
-    )
-    .subscribe((status) => {
-      if (status === "SUBSCRIBED") onStatus?.("Realtime connected.");
-      if (status === "CHANNEL_ERROR") onStatus?.("Realtime channel error. Check Supabase realtime/RLS.");
-    });
-
-  return () => { client.removeChannel(channel); };
+  window.addEventListener("nexus-board-updated", onLocalUpdate);
+  const timer = window.setInterval(refresh, 6000);
+  return () => {
+    window.removeEventListener("nexus-board-updated", onLocalUpdate);
+    window.clearInterval(timer);
+  };
 }

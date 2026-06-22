@@ -1,12 +1,14 @@
 "use client";
 
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/set-state-in-effect */
+
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useCompanies } from "@/lib/fieldflow/useCompanies";
 import { Bell, CheckCircle2, ChevronRight, ClipboardList, Gauge, LogOut, Package, Plus, Save, ShieldCheck, Trash2, Truck, UserCog, Wrench, Users, X } from "lucide-react";
 import { jobs as seedJobs, equipment as seedEquipment, tools as seedTools, issues as seedIssues } from "@/lib/v2Data";
-import { clearDeviceSession, getDeviceSession } from "@/lib/fieldflow/deviceAuth";
+import { fetchDeviceSession, logoutDeviceSession } from "@/lib/fieldflow/deviceAuth";
 import { loadLiveBoard, saveLiveBoard, subscribeLiveBoard, NexusBoardData } from "@/lib/fieldflow/liveStore";
 import { categorizedInventory, inventoryCategories } from "@/lib/v2Additions";
 import { seedBoardForCompany } from "@/lib/fieldflow/seedBoards";
@@ -81,7 +83,7 @@ export function ManagerApp({ view, companySlug }: { view: View; companySlug?: st
   const assets = useMemo(() => [...board.equipment.map((x:any)=>({...x, assetType:"equipment"})), ...board.tools.map((x:any)=>({...x, assetType:"tool"}))], [board.equipment, board.tools]);
   const availableAssets = assets.filter((a:any) => a.status !== "Needs Service" && a.status !== "In Use");
 
-  useEffect(() => { const session = getDeviceSession(); if (!session) router.replace("/"); if (companySlug && session && session.role !== "owner" && session.slug !== companySlug) router.replace("/"); if (session && !["owner", "admin", "manager"].includes(session.role)) router.replace(`/${session.slug}/crew`); }, [router, companySlug]);
+  useEffect(() => { fetchDeviceSession().then((session) => { if (!session) router.replace("/"); if (companySlug && session && session.role !== "owner" && session.slug !== companySlug) router.replace("/"); if (session && !["owner", "admin", "manager"].includes(session.role)) router.replace(`/${session.slug}/crew`); }).catch(() => router.replace("/")); }, [router, companySlug]);
   useEffect(() => { if (!loading && companySlug && activeCompany.slug !== companySlug) selectCompany(companySlug); }, [loading, companySlug, activeCompany.slug, selectCompany]);
   useEffect(() => { let live = true; hydrated.current = false; setSyncStatus(`Loading ${activeCompany.companyName}...`); loadLiveBoard(activeCompany.slug, fallbackBoard).then((data) => { if (!live) return; setBoard(normalizeBoard(data, activeCompany.slug)); loadedSlug.current = activeCompany.slug; hydrated.current = true; setSyncStatus("Company board loaded."); }); return () => { live = false; }; }, [activeCompany.slug, activeCompany.companyName, fallbackBoard]);
   useEffect(() => subscribeLiveBoard(activeCompany.slug, (data) => { if (loadedSlug.current !== activeCompany.slug) return; setBoard(normalizeBoard(data, activeCompany.slug)); }, setSyncStatus), [activeCompany.slug]);
@@ -119,7 +121,7 @@ export function ManagerApp({ view, companySlug }: { view: View; companySlug?: st
   function patch(k: string, v: any) { setEdit((current: any) => ({ ...current, [k]: v })); }
   function toggleAsset(id: string) { setEdit((current: any) => { const currentIds = Array.isArray(current.assetIds) ? current.assetIds : []; const asset = assets.find((a:any)=>a.id===id); const nextIds = currentIds.includes(id) ? currentIds.filter((x:string)=>x!==id) : [...currentIds, id]; const names = assets.filter((a:any)=>nextIds.includes(a.id)).map((a:any)=>a.name).join(", "); return { ...current, assetIds: nextIds, item: names || current.item }; }); }
   function togglePerm(key: string) { setEdit((current: any) => { const ps = Array.isArray(current.permissions) ? current.permissions : []; return { ...current, permissions: ps.includes(key) ? ps.filter((x: string) => x !== key) : [...ps, key] }; }); }
-  function logout() { clearDeviceSession(); router.push("/"); }
+  async function logout() { await logoutDeviceSession(); router.push("/"); }
 
   return <main className="ff-light-page"><div className="ff-shell">
     <aside className={`ff-sidebar ${open ? "open" : ""}`}><div className="ff-brand"><div className="ff-brand-row"><div className="ff-logo ff-nexus-logo"><img src="/brand/nexus-app-icon.png" alt="Nexus" /></div><div><h1>Nexus</h1><p>Manager board</p></div></div><div className="ff-company-box"><div className="micro">Signed into</div><strong>{activeCompany.companyName}</strong><div style={{ marginTop: 8, display: "flex", gap: 6, flexWrap: "wrap" }}><Pill t="green">{activeCompany.template}</Pill><Pill>{activeCompany.modules.length} modules</Pill></div><button className="ff-logout-mini" onClick={logout}><LogOut size={14}/> Logout</button></div></div><nav className="ff-nav">{nav.map(([g, links]) => <div key={g}><div className="ff-nav-label">{g}</div>{links.map(([href, label, Icon]) => <Link key={label} href={`/${activeCompany.slug}${href}`} className={`ff-nav-link ${pathname === `/${activeCompany.slug}${href}` ? "active" : ""}`}><span style={{ display: "flex", gap: 10, alignItems: "center" }}><Icon size={18} />{label}</span><ChevronRight size={14} /></Link>)}</div>)}</nav></aside>

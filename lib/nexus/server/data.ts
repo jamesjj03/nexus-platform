@@ -1,0 +1,299 @@
+import "server-only";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+
+import { seedBoardForCompany } from "@/lib/fieldflow/seedBoards";
+import type { NexusBoardData, NexusLoginChallenge, NexusRole } from "@/lib/nexus/types";
+import { hashSecret, normalizeSecret, ownerPinAllowed, pinLookup, verifySecret } from "./security";
+import { getSupabaseAdmin } from "./supabaseAdmin";
+
+const CREDENTIAL_KEYS = new Set(["pin", "tempPin", "password", "mustChangePassword"]);
+
+type FieldFlowCompanyConfig = {
+  slug: string;
+  companyName: string;
+  template: string;
+  theme: { primary: string; accent: string; background: string; panel: string };
+  modules: string[];
+  labels: Record<string, string>;
+  logoUrl?: string;
+  pins: { admin: string; manager: string; crew: string; media: string };
+  passwords?: Record<string, string>;
+  access?: Record<string, string>;
+  updatedAt?: string;
+};
+
+type CredentialRow = {
+  slug: string;
+  person_id: string;
+  person_name: string;
+  role: NexusRole;
+  access_level: string;
+  permissions: unknown[];
+  pin_lookup: string;
+  password_hash: string;
+  must_change_password: boolean;
+  updated_at: string;
+};
+
+function isCredentialRow(row: CredentialRow | null): row is CredentialRow {
+  return row !== null;
+}
+
+const defaultCompanyConfigs: FieldFlowCompanyConfig[] = [
+  {
+    slug: "joes",
+    companyName: "Joe's FieldOps",
+    template: "landscaping",
+    theme: { primary: "#14E0C9", accent: "#FF4FA3", background: "#F6F8FB", panel: "#ffffff" },
+    modules: ["Jobs", "Crews", "Equipment", "Tools", "Inventory", "Issues", "Media", "Quotes", "Staff"],
+    labels: { work: "Jobs", people: "Crews", assets: "Equipment" },
+    pins: { admin: "", manager: "", crew: "", media: "" },
+    passwords: {},
+    access: {},
+  },
+  {
+    slug: "gff",
+    companyName: "GFF Fiber Sales",
+    template: "d2d",
+    theme: { primary: "#14E0C9", accent: "#FF4FA3", background: "#F6F8FB", panel: "#ffffff" },
+    modules: ["Leads", "Reps", "Territories", "Installs", "Follow-Ups", "Media", "Reports", "Staff"],
+    labels: { work: "Leads", people: "Reps", assets: "Sales Kits" },
+    pins: { admin: "", manager: "", crew: "", media: "" },
+    passwords: {},
+    access: {},
+  },
+];
+
+function sanitizeStaffPerson(person: any) {
+  const clean = { ...person };
+  for (const key of CREDENTIAL_KEYS) delete clean[key];
+  return clean;
+}
+
+export function sanitizeBoard(data: NexusBoardData, slug: string): NexusBoardData {
+  return {
+    jobs: data.jobs || [],
+    equipment: data.equipment || [],
+    tools: data.tools || [],
+    inventory: data.inventory || [],
+    issues: data.issues || [],
+    staff: (data.staff || []).map(sanitizeStaffPerson),
+    crews: data.crews || [],
+    messages: data.messages || [],
+    requests: data.requests || [],
+    checkouts: data.checkouts || [],
+    updatedAt: data.updatedAt || new Date().toISOString(),
+    companySlug: slug,
+  };
+}
+
+function toCompanyRow(config: FieldFlowCompanyConfig) {
+  return {
+    slug: config.slug,
+    company_name: config.companyName,
+    template: config.template,
+    theme: config.theme,
+    modules: config.modules,
+    labels: config.labels,
+    logo_url: config.logoUrl ?? null,
+    pins: {},
+    passwords: {},
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function fromCompanyRow(row: any): FieldFlowCompanyConfig {
+  return {
+    slug: row.slug,
+    companyName: row.company_name,
+    template: row.template || "general",
+    theme: row.theme || { primary: "#14E0C9", accent: "#FF4FA3", background: "#F6F8FB", panel: "#ffffff" },
+    modules: row.modules || [],
+    labels: row.labels || {},
+    logoUrl: row.logo_url || undefined,
+    pins: { admin: "", manager: "", crew: "", media: "" },
+    passwords: {},
+    access: {},
+    updatedAt: row.updated_at,
+  };
+}
+
+export async function ensureDefaultCompanies() {
+  const supabase = getSupabaseAdmin();
+  const { data } = await supabase.from("company_configs").select("slug").limit(1);
+  if (data?.length) return;
+  await supabase.from("company_configs").upsert(defaultCompanyConfigs.map(toCompanyRow), { onConflict: "slug" });
+}
+
+export async function loadCompaniesServer() {
+  await ensureDefaultCompanies();
+  const { data, error } = await getSupabaseAdmin().from("company_configs").select("*").order("company_name", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data || []).map(fromCompanyRow);
+}
+
+export async function saveCompanyServer(config: FieldFlowCompanyConfig) {
+  const { error } = await getSupabaseAdmin().from("company_configs").upsert(toCompanyRow(config), { onConflict: "slug" });
+  if (error) throw new Error(error.message);
+  return fromCompanyRow(toCompanyRow(config));
+}
+
+export async function deleteCompanyServer(slug: string) {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("nexus_staff_credentials").delete().eq("slug", slug);
+  await supabase.from("nexus_company_data").delete().eq("slug", slug);
+  const { error } = await supabase.from("company_configs").delete().eq("slug", slug);
+  if (error) throw new Error(error.message);
+}
+
+export async function ensureBoardServer(slug: string) {
+  const supabase = getSupabaseAdmin();
+  const { data, error } = await supabase.from("nexus_company_data").select("data").eq("slug", slug).maybeSingle();
+  if (!error && data?.data) {
+    const board = data.data as NexusBoardData;
+    await ensureCredentialsForBoard(slug, seedBoardForCompany(slug, { includeCredentials: true }));
+    return sanitizeBoard(board, slug);
+  }
+
+  const seededWithCredentials = seedBoardForCompany(slug, { includeCredentials: true });
+  await ensureCredentialsForBoard(slug, seededWithCredentials);
+  const clean = sanitizeBoard(seededWithCredentials, slug);
+  await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
+  return clean;
+}
+
+export async function loadBoardServer(slug: string) {
+  return ensureBoardServer(slug);
+}
+
+export async function ensureCredentialsForBoard(slug: string, board: NexusBoardData) {
+  const supabase = getSupabaseAdmin();
+  const { count } = await supabase.from("nexus_staff_credentials").select("id", { count: "exact", head: true }).eq("slug", slug);
+  if (count && count > 0) return;
+
+  const rows = await Promise.all((board.staff || []).map(async (person: any): Promise<CredentialRow | null> => {
+    const pin = normalizeSecret(person.pin || person.tempPin);
+    if (!person.id || !pin) return null;
+    const password = normalizeSecret(person.password || String(person.name || "").split(/\s+/)[0]?.toLowerCase() || "password");
+    return {
+      slug,
+      person_id: person.id,
+      person_name: person.name || person.id,
+      role: roleFromStaffServer(person),
+      access_level: person.accessLevel || person.role || "crew",
+      permissions: person.permissions || [],
+      pin_lookup: pinLookup(pin),
+      password_hash: await hashSecret(password),
+      must_change_password: person.mustChangePassword ?? true,
+      updated_at: new Date().toISOString(),
+    };
+  }));
+
+  const cleanRows = rows.filter(isCredentialRow);
+  if (cleanRows.length) await supabase.from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+}
+
+export async function saveBoardServer(slug: string, board: NexusBoardData) {
+  await upsertCredentialEdits(slug, board);
+  const clean = sanitizeBoard(board, slug);
+  clean.updatedAt = new Date().toISOString();
+  const { error } = await getSupabaseAdmin().from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
+  if (error) throw new Error(error.message);
+  return clean;
+}
+
+async function upsertCredentialEdits(slug: string, board: NexusBoardData) {
+  const rows = await Promise.all((board.staff || []).map(async (person: any): Promise<CredentialRow | null> => {
+    if (!person.id) return null;
+    const hasPin = normalizeSecret(person.pin || person.tempPin);
+    const hasPassword = normalizeSecret(person.password);
+    if (!hasPin && !hasPassword && person.mustChangePassword === undefined) return null;
+
+    const current = await getSupabaseAdmin()
+      .from("nexus_staff_credentials")
+      .select("*")
+      .eq("slug", slug)
+      .eq("person_id", person.id)
+      .maybeSingle();
+
+    return {
+      slug,
+      person_id: person.id,
+      person_name: person.name || person.id,
+      role: roleFromStaffServer(person),
+      access_level: person.accessLevel || person.role || "crew",
+      permissions: person.permissions || [],
+      pin_lookup: hasPin ? pinLookup(hasPin) : current.data?.pin_lookup,
+      password_hash: hasPassword ? await hashSecret(hasPassword) : current.data?.password_hash,
+      must_change_password: person.mustChangePassword ?? current.data?.must_change_password ?? false,
+      updated_at: new Date().toISOString(),
+    };
+  }));
+
+  const cleanRows = rows.filter(isCredentialRow).filter((row) => row.pin_lookup && row.password_hash);
+  if (cleanRows.length) await getSupabaseAdmin().from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+}
+
+export async function identifyPinServer(pin: string): Promise<Omit<NexusLoginChallenge, "challenge"> | null> {
+  if (ownerPinAllowed(pin)) {
+    return { label: "Nexus Owner", slug: "owner", companyName: "Nexus", role: "owner" };
+  }
+
+  await loadCompaniesServer();
+  for (const company of await loadCompaniesServer()) await ensureBoardServer(company.slug);
+
+  const { data, error } = await getSupabaseAdmin()
+    .from("nexus_staff_credentials")
+    .select("*")
+    .eq("pin_lookup", pinLookup(pin))
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const company = (await loadCompaniesServer()).find((item) => item.slug === data.slug);
+  const role = data.role as NexusRole;
+  return {
+    label: `${company?.companyName || data.slug} - ${data.person_name} - ${roleLabelServer(role)}`,
+    slug: data.slug,
+    companyName: company?.companyName || data.slug,
+    role,
+    personId: data.person_id,
+    personName: data.person_name,
+    mustChangePassword: data.must_change_password,
+  };
+}
+
+export async function verifyStaffPassword(slug: string, personId: string, password: string) {
+  const { data, error } = await getSupabaseAdmin()
+    .from("nexus_staff_credentials")
+    .select("*")
+    .eq("slug", slug)
+    .eq("person_id", personId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const ok = await verifySecret(password, data.password_hash);
+  return ok ? data : null;
+}
+
+export async function updateStaffPassword(slug: string, personId: string, password: string) {
+  const { error } = await getSupabaseAdmin()
+    .from("nexus_staff_credentials")
+    .update({ password_hash: await hashSecret(password), must_change_password: false, updated_at: new Date().toISOString() })
+    .eq("slug", slug)
+    .eq("person_id", personId);
+  if (error) throw new Error(error.message);
+}
+
+function roleFromStaffServer(person: any): NexusRole {
+  const level = String(person?.accessLevel || person?.role || "").toLowerCase();
+  if (level.includes("company_admin") || level.includes("company admin") || level.includes("owner")) return "admin";
+  if (level.includes("manager") || level.includes("lead") || (person?.permissions || []).includes("approve_requests")) return "manager";
+  return "crew";
+}
+
+function roleLabelServer(role: NexusRole) {
+  if (role === "owner") return "Nexus Owner";
+  if (role === "admin") return "Company Admin";
+  if (role === "manager") return "Manager";
+  return "Crew";
+}
