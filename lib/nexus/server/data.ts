@@ -40,6 +40,10 @@ function isCredentialRow(row: CredentialRow | null): row is CredentialRow {
   return row !== null;
 }
 
+function uniqueCredentialRows(rows: CredentialRow[]) {
+  return Array.from(new Map(rows.map((row) => [`${row.slug}:${row.person_id}`, row])).values());
+}
+
 const defaultCompanyConfigs: FieldFlowCompanyConfig[] = [
   {
     slug: "joes",
@@ -190,8 +194,11 @@ export async function ensureCredentialsForBoard(slug: string, board: NexusBoardD
     };
   }));
 
-  const cleanRows = rows.filter(isCredentialRow);
-  if (cleanRows.length) await supabase.from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+  const cleanRows = uniqueCredentialRows(rows.filter(isCredentialRow));
+  if (cleanRows.length) {
+    const { error } = await supabase.from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+    if (error) throw new Error(error.message);
+  }
 }
 
 export async function saveBoardServer(slug: string, board: NexusBoardData) {
@@ -231,35 +238,45 @@ async function upsertCredentialEdits(slug: string, board: NexusBoardData) {
     };
   }));
 
-  const cleanRows = rows.filter(isCredentialRow).filter((row) => row.pin_lookup && row.password_hash);
-  if (cleanRows.length) await getSupabaseAdmin().from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+  const cleanRows = uniqueCredentialRows(rows.filter(isCredentialRow).filter((row) => row.pin_lookup && row.password_hash));
+  if (cleanRows.length) {
+    const { error } = await getSupabaseAdmin().from("nexus_staff_credentials").upsert(cleanRows, { onConflict: "slug,person_id" });
+    if (error) throw new Error(error.message);
+  }
 }
 
-export async function identifyPinServer(pin: string): Promise<Omit<NexusLoginChallenge, "challenge"> | null> {
-  if (ownerPinAllowed(pin)) {
+export async function identifyPinServer(pin: string, slug?: string): Promise<Omit<NexusLoginChallenge, "challenge"> | null> {
+  const scopeSlug = normalizeSecret(slug);
+  if ((!scopeSlug || scopeSlug === "owner") && ownerPinAllowed(pin)) {
     return { label: "Nexus Owner", slug: "owner", companyName: "Nexus", role: "owner" };
   }
 
   await loadCompaniesServer();
-  for (const company of await loadCompaniesServer()) await ensureBoardServer(company.slug);
+  const companies = await loadCompaniesServer();
+  const targetCompanies = scopeSlug ? companies.filter((company) => company.slug === scopeSlug) : companies;
+  for (const company of targetCompanies) await ensureBoardServer(company.slug);
 
-  const { data, error } = await getSupabaseAdmin()
+  let query = getSupabaseAdmin()
     .from("nexus_staff_credentials")
     .select("*")
-    .eq("pin_lookup", pinLookup(pin))
-    .maybeSingle();
+    .eq("pin_lookup", pinLookup(pin));
 
-  if (error || !data) return null;
-  const company = (await loadCompaniesServer()).find((item) => item.slug === data.slug);
-  const role = data.role as NexusRole;
+  if (scopeSlug) query = query.eq("slug", scopeSlug);
+
+  const { data, error } = await query.limit(2);
+
+  if (error || !data?.length || data.length > 1) return null;
+  const credential = data[0];
+  const company = companies.find((item) => item.slug === credential.slug);
+  const role = credential.role as NexusRole;
   return {
-    label: `${company?.companyName || data.slug} - ${data.person_name} - ${roleLabelServer(role)}`,
-    slug: data.slug,
-    companyName: company?.companyName || data.slug,
+    label: `${company?.companyName || credential.slug} - ${credential.person_name} - ${roleLabelServer(role)}`,
+    slug: credential.slug,
+    companyName: company?.companyName || credential.slug,
     role,
-    personId: data.person_id,
-    personName: data.person_name,
-    mustChangePassword: data.must_change_password,
+    personId: credential.person_id,
+    personName: credential.person_name,
+    mustChangePassword: credential.must_change_password,
   };
 }
 

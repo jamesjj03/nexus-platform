@@ -12,9 +12,10 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({}));
   const pin = String(body.pin || "").trim();
+  const slug = String(body.slug || "").trim();
   if (pin.length < 4) return NextResponse.json({ error: "Enter a valid PIN." }, { status: 400 });
 
-  const hit = await identifyPinServer(pin);
+  const hit = await identifyPinServer(pin, slug);
   if (!hit) return NextResponse.json({ error: "PIN does not match any known user." }, { status: 401 });
 
   return NextResponse.json({ ...hit, challenge: signChallenge(hit) });

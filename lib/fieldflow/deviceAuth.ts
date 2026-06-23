@@ -38,10 +38,10 @@ async function apiJson<T>(url: string, init?: RequestInit): Promise<T> {
   return data as T;
 }
 
-export async function identifyPin(pin: string) {
+export async function identifyPin(pin: string, slug?: string) {
   return apiJson<NexusLoginChallenge>("/api/nexus/auth/identify", {
     method: "POST",
-    body: JSON.stringify({ pin }),
+    body: JSON.stringify({ pin, slug }),
   });
 }
 

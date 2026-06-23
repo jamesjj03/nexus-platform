@@ -4,6 +4,12 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Delete, LockKeyhole, LogOut, ShieldCheck } from "lucide-react";
 import {
+  getActiveCompanySlug,
+  loadCompanies,
+  setActiveCompanySlug,
+  type FieldFlowCompanyConfig,
+} from "@/lib/fieldflow/companyConfig";
+import {
   completeServerLogin,
   fetchDeviceSession,
   getDeviceSession,
@@ -12,7 +18,6 @@ import {
   routeForRole,
   type FieldFlowRole,
 } from "@/lib/fieldflow/deviceAuth";
-import { setActiveCompanySlug } from "@/lib/fieldflow/companyConfig";
 
 const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"];
 const CONTINUE_GATE_KEY = "nexus_continue_gate_v1";
@@ -82,10 +87,25 @@ export default function NexusLogin() {
   const [passwordStep, setPasswordStep] = useState<LoginHit>(null);
   const [savedSession, setSavedSession] = useState<ReturnType<typeof getDeviceSession>>(null);
   const [sessionReady, setSessionReady] = useState(false);
+  const [companies, setCompanies] = useState<FieldFlowCompanyConfig[]>([]);
+  const [selectedCompanySlug, setSelectedCompanySlug] = useState("");
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
     fetchDeviceSession().then(setSavedSession).catch(() => setSavedSession(null)).finally(() => setSessionReady(true));
+  }, []);
+
+  useEffect(() => {
+    let live = true;
+    loadCompanies().then((loaded) => {
+      if (!live) return;
+      setCompanies(loaded);
+      const activeSlug = getActiveCompanySlug();
+      setSelectedCompanySlug((current) => current || (loaded.some((company) => company.slug === activeSlug) ? activeSlug : loaded[0]?.slug || "owner"));
+    }).catch(() => setSelectedCompanySlug((current) => current || "owner"));
+    return () => {
+      live = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -132,9 +152,13 @@ export default function NexusLogin() {
   }
 
   async function unlock() {
+    if (!selectedCompanySlug) {
+      setError("Choose a company first.");
+      return;
+    }
     setChecking(true);
     try {
-      const foundHit = await identifyPin(pin);
+      const foundHit = await identifyPin(pin, selectedCompanySlug);
       setError("");
       setPasswordStep(foundHit);
     } catch (err: unknown) {
@@ -179,6 +203,7 @@ export default function NexusLogin() {
   const showContinueGate = sessionReady && savedSession?.remember && !passwordStep;
   const statusLabel = checking ? "VERIFYING" : "ENTER PIN";
   const savedName = savedSession?.personName || (savedSession?.role === "owner" ? "Nexus Owner" : savedSession?.companyName) || "saved user";
+  const selectedCompany = companies.find((company) => company.slug === selectedCompanySlug);
 
   return (
     <main className="nexus-login-page">
@@ -204,6 +229,15 @@ export default function NexusLogin() {
             </div>
           ) : !passwordStep ? (
             <>
+              <div className="nexus-company-select" aria-label="Company">
+                <button type="button" className={selectedCompanySlug === "owner" ? "active" : ""} onClick={() => setSelectedCompanySlug("owner")}>Nexus</button>
+                {companies.map((company) => (
+                  <button type="button" key={company.slug} className={selectedCompanySlug === company.slug ? "active" : ""} onClick={() => setSelectedCompanySlug(company.slug)}>
+                    {company.companyName}
+                  </button>
+                ))}
+              </div>
+              <div className="nexus-company-context">{selectedCompanySlug === "owner" ? "Owner access" : selectedCompany?.companyName || "Select company"}</div>
               <div className="nexus-pin-status"><strong>{statusLabel}</strong></div>
               <div className="nexus-pin-dots" aria-label="PIN entry">{[0, 1, 2, 3].map((i) => <span key={i} className={pin.length > i ? "on" : ""} />)}</div>
               <div className="nexus-keypad">

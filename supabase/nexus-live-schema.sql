@@ -34,7 +34,7 @@ create table if not exists public.nexus_staff_credentials (
   must_change_password boolean not null default true,
   updated_at timestamptz not null default now(),
   unique (slug, person_id),
-  unique (pin_lookup)
+  unique (slug, pin_lookup)
 );
 
 create table if not exists public.nexus_sessions (
@@ -49,6 +49,7 @@ create table if not exists public.nexus_sessions (
 
 create index if not exists nexus_staff_credentials_slug_idx on public.nexus_staff_credentials(slug);
 create index if not exists nexus_staff_credentials_pin_lookup_idx on public.nexus_staff_credentials(pin_lookup);
+create unique index if not exists nexus_staff_credentials_slug_pin_lookup_idx on public.nexus_staff_credentials(slug, pin_lookup);
 create index if not exists nexus_sessions_expires_at_idx on public.nexus_sessions(expires_at);
 
 alter table public.company_configs enable row level security;
