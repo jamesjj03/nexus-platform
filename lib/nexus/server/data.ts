@@ -44,6 +44,44 @@ function uniqueCredentialRows(rows: CredentialRow[]) {
   return Array.from(new Map(rows.map((row) => [`${row.slug}:${row.person_id}`, row])).values());
 }
 
+const builtInSeedIds = new Set([
+  "job-001", "job-002", "job-003", "job-004",
+  "eq-001", "eq-002", "eq-003", "eq-004", "eq-005", "eq-006", "eq-007", "eq-008",
+  "tool-001", "tool-002", "tool-003", "tool-004", "tool-005", "tool-006",
+  "chad", "jeanette", "jamie", "bill", "jose", "justin", "lil-chad", "jim",
+  "lead-001", "lead-002", "lead-003",
+  "sales-kit-001", "sales-kit-002", "hotspot-001", "car-001",
+  "tool-clipboard", "tool-battery", "tool-doorhanger",
+  "sam", "jj", "zach", "dylan",
+]);
+
+function isBuiltInDemoCompany(slug: string) {
+  const clean = slug.toLowerCase();
+  return clean === "joes" || clean.includes("joe") || clean.includes("gff") || clean.includes("fiber") || clean.includes("sales");
+}
+
+function looksLikeBuiltInSeedBoard(board: NexusBoardData) {
+  const lists = [board.jobs, board.equipment, board.tools, board.inventory, board.issues, board.staff, board.crews, board.messages, board.requests, board.checkouts];
+  return lists.some((list) => (list || []).some((item: any) => builtInSeedIds.has(String(item?.id || "").toLowerCase())));
+}
+
+function emptyBoardForSlug(slug: string): NexusBoardData {
+  return {
+    jobs: [],
+    equipment: [],
+    tools: [],
+    inventory: [],
+    issues: [],
+    staff: [],
+    crews: [],
+    messages: [],
+    requests: [],
+    checkouts: [],
+    companySlug: slug,
+    updatedAt: new Date().toISOString(),
+  };
+}
+
 const defaultCompanyConfigs: FieldFlowCompanyConfig[] = [
   {
     slug: "joes",
@@ -211,10 +249,24 @@ export async function ensureCredentialsForBoard(slug: string, board: NexusBoardD
 }
 
 export async function saveBoardServer(slug: string, board: NexusBoardData) {
+  const supabase = getSupabaseAdmin();
+  if (!isBuiltInDemoCompany(slug) && looksLikeBuiltInSeedBoard(board)) {
+    const { data } = await supabase.from("nexus_company_data").select("data").eq("slug", slug).maybeSingle();
+    const current = data?.data as NexusBoardData | undefined;
+    if (!current || looksLikeBuiltInSeedBoard(current)) {
+      const empty = sanitizeBoard(emptyBoardForSlug(slug), slug);
+      await supabase.from("nexus_staff_credentials").delete().eq("slug", slug);
+      const { error } = await supabase.from("nexus_company_data").upsert({ slug, data: empty, updated_at: empty.updatedAt }, { onConflict: "slug" });
+      if (error) throw new Error(error.message);
+      return empty;
+    }
+    return sanitizeBoard(current, slug);
+  }
+
   await upsertCredentialEdits(slug, board);
   const clean = sanitizeBoard(board, slug);
   clean.updatedAt = new Date().toISOString();
-  const { error } = await getSupabaseAdmin().from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
+  const { error } = await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
   if (error) throw new Error(error.message);
   return clean;
 }
