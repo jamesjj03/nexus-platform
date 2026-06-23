@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Delete, Fingerprint, LockKeyhole, LogOut, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowRight, Delete, LockKeyhole, LogOut, ShieldCheck } from "lucide-react";
 import {
   completeServerLogin,
   fetchDeviceSession,
@@ -15,6 +15,7 @@ import {
 import { setActiveCompanySlug } from "@/lib/fieldflow/companyConfig";
 
 const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "clear", "0", "back"];
+const CONTINUE_GATE_KEY = "nexus_continue_gate_v1";
 
 type LoginHit = {
   challenge: string;
@@ -35,6 +36,42 @@ function errorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function localDayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function savedSessionKey(session: ReturnType<typeof getDeviceSession>) {
+  if (!session) return "";
+  return [session.slug, session.role, session.personId || "owner"].join(":");
+}
+
+function canContinueAutomatically(session: ReturnType<typeof getDeviceSession>) {
+  if (typeof window === "undefined" || !session?.remember) return false;
+  try {
+    const raw = localStorage.getItem(CONTINUE_GATE_KEY);
+    const saved = raw ? JSON.parse(raw) : {};
+    return saved[savedSessionKey(session)] === localDayKey();
+  } catch {
+    return false;
+  }
+}
+
+function markContinuedToday(session: ReturnType<typeof getDeviceSession>) {
+  if (typeof window === "undefined" || !session?.remember) return;
+  try {
+    const raw = localStorage.getItem(CONTINUE_GATE_KEY);
+    const saved = raw ? JSON.parse(raw) : {};
+    localStorage.setItem(CONTINUE_GATE_KEY, JSON.stringify({ ...saved, [savedSessionKey(session)]: localDayKey() }));
+  } catch {
+    localStorage.setItem(CONTINUE_GATE_KEY, JSON.stringify({ [savedSessionKey(session)]: localDayKey() }));
+  }
+}
+
+function clearContinueGate() {
+  if (typeof window !== "undefined") localStorage.removeItem(CONTINUE_GATE_KEY);
+}
+
 export default function NexusLogin() {
   const router = useRouter();
   const [pin, setPin] = useState("");
@@ -43,16 +80,19 @@ export default function NexusLogin() {
   const [password, setPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [passwordStep, setPasswordStep] = useState<LoginHit>(null);
-  const [savedSession, setSavedSession] = useState<ReturnType<typeof getDeviceSession>>(() => getDeviceSession());
+  const [savedSession, setSavedSession] = useState<ReturnType<typeof getDeviceSession>>(null);
+  const [sessionReady, setSessionReady] = useState(false);
   const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    fetchDeviceSession().then(setSavedSession).catch(() => setSavedSession(null));
+    fetchDeviceSession().then(setSavedSession).catch(() => setSavedSession(null)).finally(() => setSessionReady(true));
   }, []);
 
   useEffect(() => {
-    if (savedSession?.remember) router.replace(routeForRole(savedSession.role, savedSession.slug));
-  }, [savedSession, router]);
+    if (sessionReady && canContinueAutomatically(savedSession)) {
+      router.replace(routeForRole(savedSession!.role, savedSession!.slug));
+    }
+  }, [savedSession, sessionReady, router]);
 
   useEffect(() => {
     if (pin.length >= 4 && !passwordStep && !checking) {
@@ -115,6 +155,7 @@ export default function NexusLogin() {
         remember,
       });
       setActiveCompanySlug(result.session.slug);
+      markContinuedToday(result.session);
       router.push(result.route);
     } catch (err: unknown) {
       setError(errorMessage(err, "Password does not match this person."));
@@ -124,30 +165,52 @@ export default function NexusLogin() {
 
   async function forgetDevice() {
     await logoutDeviceSession();
+    clearContinueGate();
     setSavedSession(null);
     setError("Saved login cleared.");
   }
 
-  const statusLabel = checking ? "Checking person PIN..." : pin ? "Checking access..." : "Waiting for your personal PIN";
+  function continueSavedSession() {
+    if (!savedSession) return;
+    markContinuedToday(savedSession);
+    router.push(routeForRole(savedSession.role, savedSession.slug));
+  }
+
+  const showContinueGate = sessionReady && savedSession?.remember && !passwordStep;
+  const statusLabel = checking ? "VERIFYING" : pin ? "PIN ACTIVE" : "PIN";
+  const savedName = savedSession?.personName || (savedSession?.role === "owner" ? "Nexus Owner" : savedSession?.companyName) || "saved user";
 
   return (
     <main className="nexus-login-page">
-      <div className="nexus-orb nexus-orb-a" />
-      <div className="nexus-orb nexus-orb-b" />
-      <div className="nexus-grid-bg" />
+      <div className="nexus-command-atmosphere" aria-hidden="true">
+        <div className="nexus-scanline" />
+        <div className="nexus-map-grid" />
+        <div className="nexus-route-line one" />
+        <div className="nexus-route-line two" />
+        <div className="nexus-ghost-panel panel-a"><span>12</span><i /></div>
+        <div className="nexus-ghost-panel panel-b"><span>04</span><i /></div>
+        <div className="nexus-ghost-panel panel-c"><span>28</span><i /></div>
+      </div>
       <section className="nexus-login-shell">
+        <div className="nexus-wordmark" aria-label="Nexus">
+          <img src="/brand/nexus-mark-transparent.png" alt="" />
+          <span>EXUS</span>
+        </div>
         <article className="nexus-login-card">
-          <div className="nexus-brand-plate">
-            <img src="/brand/nexus-logo-primary.png" alt="Nexus" />
-          </div>
-          <div className="nexus-login-copy">
-            <p className="nexus-eyebrow"><Sparkles size={14} /> Secure Field Command</p>
-            <h1>Enter your personal PIN.</h1>
-            <p>Every person gets their own PIN. Company access comes from staff roles, not one shared crew password.</p>
-          </div>
-          {!passwordStep ? (
+          {showContinueGate ? (
+            <div className="nexus-continue-panel">
+              <div className="nexus-access-mark"><ShieldCheck size={22} /></div>
+              <div>
+                <span>Continue as</span>
+                <strong>{savedName}</strong>
+                <small>{savedSession.companyName || "Nexus"} / {savedSession.role}</small>
+              </div>
+              <button className="nexus-unlock" onClick={continueSavedSession}><LockKeyhole size={18} /> Continue <ArrowRight size={18} /></button>
+              <button className="nexus-forget" onClick={forgetDevice}><LogOut size={15} /> Forget saved login</button>
+            </div>
+          ) : !passwordStep ? (
             <>
-              <div className="nexus-pin-status"><Fingerprint size={20} /><strong>{statusLabel}</strong></div>
+              <div className="nexus-pin-status"><strong>{statusLabel}</strong></div>
               <div className="nexus-pin-dots" aria-label="PIN entry">{[0, 1, 2, 3].map((i) => <span key={i} className={pin.length > i ? "on" : ""} />)}</div>
               <div className="nexus-keypad">
                 {keys.map((key) => (
@@ -175,10 +238,9 @@ export default function NexusLogin() {
               <button className="nexus-forget" onClick={() => { setPasswordStep(null); setPassword(""); setNewPassword(""); setPin(""); }}>Back to PIN</button>
             </>
           )}
-          <label className="nexus-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep this device signed in</span></label>
+          {!showContinueGate ? <label className="nexus-remember"><input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} /><span>Keep this device signed in</span></label> : null}
           {error ? <p className="nexus-error">{error}</p> : null}
-          {savedSession ? <button className="nexus-forget" onClick={forgetDevice}><LogOut size={15} /> Forget saved login</button> : null}
-          <div className="nexus-owner-note"><ShieldCheck size={14} /> Owner PIN now validates on the server. Staff PINs route by company, role, and permissions.</div>
+          {savedSession && !showContinueGate ? <button className="nexus-forget" onClick={forgetDevice}><LogOut size={15} /> Forget saved login</button> : null}
         </article>
       </section>
     </main>

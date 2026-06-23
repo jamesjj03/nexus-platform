@@ -6,8 +6,8 @@ export const metadata: Metadata = {
   title: "Nexus",
   description: "Modular field operations software for real businesses.",
   icons: {
-    icon: "/brand/icon-192.png",
-    apple: "/brand/icon-192.png",
+    icon: "/brand/nexus-app-icon.png",
+    apple: "/brand/nexus-app-icon.png",
   },
 };
 
