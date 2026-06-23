@@ -138,7 +138,7 @@ export default function NexusLogin() {
       setError("");
       setPasswordStep(foundHit);
     } catch (err: unknown) {
-      setError(errorMessage(err, "That PIN does not match any person or Nexus owner access."));
+      setError(errorMessage(err, "PIN does not match any known user."));
       setPin("");
     } finally {
       setChecking(false);
@@ -177,7 +177,7 @@ export default function NexusLogin() {
   }
 
   const showContinueGate = sessionReady && savedSession?.remember && !passwordStep;
-  const statusLabel = checking ? "VERIFYING" : pin ? "PIN ACTIVE" : "PIN";
+  const statusLabel = checking ? "VERIFYING" : "ENTER PIN";
   const savedName = savedSession?.personName || (savedSession?.role === "owner" ? "Nexus Owner" : savedSession?.companyName) || "saved user";
 
   return (
@@ -185,16 +185,10 @@ export default function NexusLogin() {
       <div className="nexus-command-atmosphere" aria-hidden="true">
         <div className="nexus-scanline" />
         <div className="nexus-map-grid" />
-        <div className="nexus-route-line one" />
-        <div className="nexus-route-line two" />
-        <div className="nexus-ghost-panel panel-a"><span>12</span><i /></div>
-        <div className="nexus-ghost-panel panel-b"><span>04</span><i /></div>
-        <div className="nexus-ghost-panel panel-c"><span>28</span><i /></div>
       </div>
       <section className="nexus-login-shell">
         <div className="nexus-wordmark" aria-label="Nexus">
-          <img src="/brand/nexus-mark-transparent.png" alt="" />
-          <span>EXUS</span>
+          <img src="/brand/nexus-wordmark-transparent.png" alt="" />
         </div>
         <article className="nexus-login-card">
           {showContinueGate ? (
