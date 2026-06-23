@@ -90,7 +90,23 @@ const gffInventory = [
   { id: "inv-wifi", name: "Wi-Fi extender talking points", category: "Training", qty: 1, unit: "script", status: "Good", dept: "Sales", notes: ["Explain as coverage, not random add-on."] },
 ];
 
-export function seedBoardForCompany(slug?: string, options: { includeCredentials?: boolean } = {}): NexusBoardData {
+function emptyBoard(slug: string): NexusBoardData {
+  return {
+    jobs: [],
+    equipment: [],
+    tools: [],
+    inventory: [],
+    issues: [],
+    staff: [],
+    crews: [],
+    messages: [],
+    requests: [],
+    checkouts: [],
+    companySlug: slug,
+  };
+}
+
+export function seedBoardForCompany(slug?: string, options: { includeCredentials?: boolean; template?: string } = {}): NexusBoardData {
   const clean = (slug || "joes").toLowerCase();
   const includeCredentials = options.includeCredentials === true;
   if (clean.includes("gff") || clean.includes("fiber") || clean.includes("sales")) {
@@ -99,6 +115,8 @@ export function seedBoardForCompany(slug?: string, options: { includeCredentials
       { id: "issue-gff-002", name: "Door hanger stock low", title: "Door hanger stock low", severity: "Low", status: "Open", owner: "JJ", dept: "Sales", notes: ["Restock before the next out-of-town run."] },
     ], staff: staffFromCrews(gffCrews, "Sam", "JJ", includeCredentials), crews: gffCrews, messages: [], requests: [], checkouts: [] };
   }
+  if (clean !== "joes" && !clean.includes("joe")) return emptyBoard(clean);
+
   const joesStaffClean = includeCredentials ? [
     staff("Chad", "Company Admin", "Office", "Office", "5100", "company_admin", companyAdminPerms, true),
     staff("Jeanette", "Office Manager", "Office", "Office", "5101", "company_admin", companyAdminPerms, true),

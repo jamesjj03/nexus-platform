@@ -236,3 +236,18 @@ export async function deleteCompanyConfig(slug: string) {
     return { ok: false, mode: "supabase" as const, message: error instanceof Error ? error.message : "Delete failed." };
   }
 }
+
+export async function resetCompanyBoard(slug: string) {
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(`nexus_company_board_v1:${slug}`);
+  }
+
+  try {
+    const res = await fetch(`/api/nexus/boards/${encodeURIComponent(slug)}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) return { ok: false, mode: "supabase" as const, message: data.error || "Reset failed." };
+    return { ok: true, mode: "supabase" as const, message: "Company board reset." };
+  } catch (error: unknown) {
+    return { ok: false, mode: "supabase" as const, message: error instanceof Error ? error.message : "Reset failed." };
+  }
+}

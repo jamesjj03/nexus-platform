@@ -86,6 +86,8 @@ h1,h2,h3,.ff-title h2,.ff-brand h1,.nexus-admin-brand h1{font-family:"Space Grot
 .nexus-password-field input{width:100%;border:1px solid rgba(11,15,20,.10);border-radius:18px;padding:15px 16px;font-size:18px;font-weight:900;outline:none;background:white;color:#0B0F14;}
 .nexus-password-field input:focus{border-color:#7B61FF;box-shadow:0 0 0 4px rgba(123,97,255,.13);}
 .nexus-sync-pill{display:inline-flex;align-items:center;min-height:38px;border:1px solid rgba(20,224,201,.25);background:rgba(20,224,201,.10);color:#0f766e;border-radius:999px;padding:0 12px;font-weight:900;font-size:12px;}
+.ff-loading-shell{min-height:100svh;display:grid;place-items:center;padding:24px;}
+.ff-panel-actions,.ff-drawer-tools{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
 @media(max-width:900px){.nexus-brand-plate img{width:min(420px,96%)!important}.ff-logo.ff-nexus-logo{width:64px!important;height:64px!important}.nexus-sync-pill{display:none}}
 
 .ff-asset-picklist{display:grid;gap:8px;max-height:260px;overflow:auto;padding:10px;border:1px solid #d9e2dc;border-radius:16px;background:#f8faf7}

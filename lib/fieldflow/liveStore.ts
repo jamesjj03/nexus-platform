@@ -21,10 +21,10 @@ export function loadLocalBoard(slug: string, fallback: NexusBoardData): NexusBoa
   }
 }
 
-export function saveLocalBoard(slug: string, data: NexusBoardData) {
+export function saveLocalBoard(slug: string, data: NexusBoardData, options: { broadcast?: boolean } = {}) {
   if (typeof window === "undefined") return;
   localStorage.setItem(boardKey(slug), JSON.stringify({ ...data, companySlug: slug, updatedAt: new Date().toISOString() }));
-  window.dispatchEvent(new CustomEvent("nexus-board-updated", { detail: { slug } }));
+  if (options.broadcast !== false) window.dispatchEvent(new CustomEvent("nexus-board-updated", { detail: { slug } }));
 }
 
 export async function loadLiveBoard(slug: string, fallback: NexusBoardData): Promise<NexusBoardData> {
@@ -36,7 +36,7 @@ export async function loadLiveBoard(slug: string, fallback: NexusBoardData): Pro
     const data = await res.json();
     const liveData = data.board as NexusBoardData;
     const clean = { ...fallback, ...liveData, companySlug: slug };
-    saveLocalBoard(slug, clean);
+    saveLocalBoard(slug, clean, { broadcast: false });
     return clean;
   } catch {
     return local;
@@ -71,7 +71,7 @@ export function subscribeLiveBoard(slug: string, onBoard: (data: NexusBoardData)
       if (!res.ok) return;
       const data = await res.json();
       if (!data.board || data.board.companySlug !== slug) return;
-      saveLocalBoard(slug, data.board);
+      saveLocalBoard(slug, data.board, { broadcast: false });
       onBoard(data.board);
       onStatus?.("Live update received.");
     } catch {

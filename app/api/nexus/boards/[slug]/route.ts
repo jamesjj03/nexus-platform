@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { loadBoardServer, saveBoardServer } from "@/lib/nexus/server/data";
-import { canManageCompany, canReadCompany, getSessionFromRequest } from "@/lib/nexus/server/session";
+import { loadBoardServer, resetBoardServer, saveBoardServer } from "@/lib/nexus/server/data";
+import { canManageCompany, canManageStudio, canReadCompany, getSessionFromRequest } from "@/lib/nexus/server/session";
 
 export const runtime = "nodejs";
 
@@ -19,3 +19,9 @@ export async function PUT(request: Request, context: { params: Promise<{ slug: s
   return NextResponse.json({ board: await saveBoardServer(slug, body.board || body) });
 }
 
+export async function DELETE(request: Request, context: { params: Promise<{ slug: string }> }) {
+  const { slug } = await context.params;
+  const session = await getSessionFromRequest(request);
+  if (!canManageStudio(session)) return NextResponse.json({ error: "Owner access required." }, { status: 403 });
+  return NextResponse.json({ board: await resetBoardServer(slug) });
+}

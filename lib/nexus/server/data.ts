@@ -140,6 +140,7 @@ export async function loadCompaniesServer() {
 export async function saveCompanyServer(config: FieldFlowCompanyConfig) {
   const { error } = await getSupabaseAdmin().from("company_configs").upsert(toCompanyRow(config), { onConflict: "slug" });
   if (error) throw new Error(error.message);
+  await ensureBoardServer(config.slug);
   return fromCompanyRow(toCompanyRow(config));
 }
 
@@ -153,18 +154,26 @@ export async function deleteCompanyServer(slug: string) {
 
 export async function ensureBoardServer(slug: string) {
   const supabase = getSupabaseAdmin();
+  const company = (await loadCompaniesServer()).find((item) => item.slug === slug);
   const { data, error } = await supabase.from("nexus_company_data").select("data").eq("slug", slug).maybeSingle();
   if (!error && data?.data) {
     const board = data.data as NexusBoardData;
-    await ensureCredentialsForBoard(slug, seedBoardForCompany(slug, { includeCredentials: true }));
+    await ensureCredentialsForBoard(slug, seedBoardForCompany(slug, { includeCredentials: true, template: company?.template }));
     return sanitizeBoard(board, slug);
   }
 
-  const seededWithCredentials = seedBoardForCompany(slug, { includeCredentials: true });
+  const seededWithCredentials = seedBoardForCompany(slug, { includeCredentials: true, template: company?.template });
   await ensureCredentialsForBoard(slug, seededWithCredentials);
   const clean = sanitizeBoard(seededWithCredentials, slug);
   await supabase.from("nexus_company_data").upsert({ slug, data: clean, updated_at: clean.updatedAt }, { onConflict: "slug" });
   return clean;
+}
+
+export async function resetBoardServer(slug: string) {
+  const supabase = getSupabaseAdmin();
+  await supabase.from("nexus_staff_credentials").delete().eq("slug", slug);
+  await supabase.from("nexus_company_data").delete().eq("slug", slug);
+  return ensureBoardServer(slug);
 }
 
 export async function loadBoardServer(slug: string) {

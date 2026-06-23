@@ -1,10 +1,10 @@
 "use client";
 
-/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/purity */
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/purity, react-hooks/set-state-in-effect */
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CheckCircle2, ClipboardList, Hand, LayoutDashboard, LogOut, MessageSquare, Package, Search, Send, Truck, UploadCloud, Wrench } from "lucide-react";
 import { useCompanies } from "@/lib/fieldflow/useCompanies";
 import { uploadCompanyFile } from "@/lib/fieldflow/companyConfig";
@@ -21,6 +21,7 @@ function Pill({ children, t = "" }: { children: React.ReactNode; t?: string }) {
 function today() { return new Date().toISOString().slice(0, 10); }
 function plusDays(days: number) { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); }
 function normalizeBoard(data: NexusBoardData, slug: string): Required<NexusBoardData> { return { jobs: data.jobs || [], equipment: data.equipment || [], tools: data.tools || [], inventory: data.inventory || [], issues: data.issues || [], staff: data.staff || [], crews: data.crews || [], messages: data.messages || [], requests: data.requests || [], checkouts: data.checkouts || [], updatedAt: data.updatedAt || "", companySlug: slug }; }
+function emptyBoard(slug: string): Required<NexusBoardData> { return normalizeBoard({ jobs: [], equipment: [], tools: [], inventory: [], issues: [], staff: [], crews: [], messages: [], requests: [], checkouts: [] }, slug); }
 function assetName(a: any) { return `${a.name}${a.status === "In Use" ? ` · out to ${a.assigned}` : ""}`; }
 
 export function CrewPortal({ companySlug }: { companySlug?: string }) {
@@ -45,12 +46,15 @@ export function CrewPortal({ companySlug }: { companySlug?: string }) {
   const [requestJobId, setRequestJobId] = useState("");
   const [selectedAssets, setSelectedAssets] = useState<string[]>([]);
   const fallbackBoard = useMemo<NexusBoardData>(() => seedBoardForCompany(activeCompany.slug), [activeCompany.slug]);
-  const [board, setBoard] = useState<Required<NexusBoardData>>(() => normalizeBoard(fallbackBoard, activeCompany.slug));
+  const [board, setBoard] = useState<Required<NexusBoardData>>(() => emptyBoard(activeCompany.slug));
+  const [boardSlug, setBoardSlug] = useState("");
+  const loadedSlug = useRef("");
+  const hydrated = useRef(false);
 
   useEffect(() => { fetchDeviceSession().then((session) => { if (!session) router.replace("/"); if (companySlug && session && session.role !== "owner" && session.slug !== companySlug) router.replace("/"); }).catch(() => router.replace("/")); }, [router, companySlug]);
   useEffect(() => { if (!loading && companySlug && activeCompany.slug !== companySlug) selectCompany(companySlug); }, [loading, companySlug, activeCompany.slug, selectCompany]);
-  useEffect(() => { let live = true; loadLiveBoard(activeCompany.slug, fallbackBoard).then(async (data) => { if (!live) return; const next = normalizeBoard(data, activeCompany.slug); setBoard(next); const session = await fetchDeviceSession().catch(() => null); const person = session?.personName || next.staff[0]?.name || "Crew member"; setRequestBy(person); setRequestCrew(next.staff.find((p:any) => p.name === person)?.crew || next.staff[0]?.crew || "Crew A"); }); return () => { live = false; }; }, [activeCompany.slug, fallbackBoard]);
-  useEffect(() => subscribeLiveBoard(activeCompany.slug, (data) => setBoard(normalizeBoard(data, activeCompany.slug)), setStatus), [activeCompany.slug]);
+  useEffect(() => { let live = true; hydrated.current = false; loadedSlug.current = ""; setBoardSlug(""); setBoard(emptyBoard(activeCompany.slug)); setStatus(`Loading ${activeCompany.companyName}...`); loadLiveBoard(activeCompany.slug, fallbackBoard).then(async (data) => { if (!live) return; const next = normalizeBoard(data, activeCompany.slug); setBoard(next); loadedSlug.current = activeCompany.slug; hydrated.current = true; setBoardSlug(activeCompany.slug); const session = await fetchDeviceSession().catch(() => null); const person = session?.personName || next.staff[0]?.name || "Crew member"; setRequestBy(person); setRequestCrew(next.staff.find((p:any) => p.name === person)?.crew || next.staff[0]?.crew || "Crew A"); setStatus("Crew board loaded."); }); return () => { live = false; }; }, [activeCompany.slug, activeCompany.companyName, fallbackBoard]);
+  useEffect(() => subscribeLiveBoard(activeCompany.slug, (data) => { if (loadedSlug.current !== activeCompany.slug) return; setBoard(normalizeBoard(data, activeCompany.slug)); }, setStatus), [activeCompany.slug]);
 
   const q = search.toLowerCase();
   const pass = (x: any) => !q || JSON.stringify(x).toLowerCase().includes(q);
@@ -80,6 +84,10 @@ export function CrewPortal({ companySlug }: { companySlug?: string }) {
     setStatus(result.ok ? "Request sent to manager board." : `Saved locally. Live sync issue: ${result.message}`);
     setSelectedAssets([]); setRequestNote(""); setRequestJobId(""); setTab("request");
   }
+
+  const waitingForCompany = loading || (companySlug ? activeCompany.slug !== companySlug : false);
+  const boardReady = boardSlug === activeCompany.slug;
+  if (waitingForCompany || !boardReady) return <main className="ff-light-page"><div className="ff-loading-shell"><div className="nexus-sync-pill">{waitingForCompany ? "Loading company..." : status}</div></div></main>;
 
   return <main className="ff-light-page"><div className="ff-crew-shell">
     <header className="ff-crew-top-v2"><div className="ff-login-brand"><div className="ff-login-logo small ff-nexus-logo"><img src="/brand/nexus-app-icon.png" alt="Nexus" /></div><div><p className="micro">Nexus Crew</p><h1>{activeCompany.companyName}</h1></div></div><div className="ff-crew-header-actions"><Link href={`/${activeCompany.slug}/dashboard`} className="ff-btn secondary"><LayoutDashboard size={17} /> Manager</Link><button className="ff-btn secondary" onClick={logout}><LogOut size={17}/> Logout</button></div></header>
