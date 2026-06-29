@@ -207,7 +207,7 @@ export async function saveCompany(config: FieldFlowCompanyConfig) {
   }
 }
 
-export async function uploadCompanyFile(slug: string, file: File, bucket = "fieldflow-media") {
+export async function uploadCompanyFile(slug: string, file: File, bucket = "nexus-media") {
   const form = new FormData();
   form.set("slug", slug);
   form.set("bucket", bucket);

@@ -8,6 +8,7 @@ import { hashSecret, normalizeSecret, ownerPinAllowed, pinLookup, verifySecret }
 import { getSupabaseAdmin } from "./supabaseAdmin";
 
 const CREDENTIAL_KEYS = new Set(["pin", "tempPin", "password", "mustChangePassword"]);
+const COMPANY_CONFIGS_TABLE = "nexus_company_configs";
 
 type FieldFlowCompanyConfig = {
   slug: string;
@@ -163,20 +164,20 @@ function fromCompanyRow(row: any): FieldFlowCompanyConfig {
 
 export async function ensureDefaultCompanies() {
   const supabase = getSupabaseAdmin();
-  const { data } = await supabase.from("company_configs").select("slug").limit(1);
+  const { data } = await supabase.from(COMPANY_CONFIGS_TABLE).select("slug").limit(1);
   if (data?.length) return;
-  await supabase.from("company_configs").upsert(defaultCompanyConfigs.map(toCompanyRow), { onConflict: "slug" });
+  await supabase.from(COMPANY_CONFIGS_TABLE).upsert(defaultCompanyConfigs.map(toCompanyRow), { onConflict: "slug" });
 }
 
 export async function loadCompaniesServer() {
   await ensureDefaultCompanies();
-  const { data, error } = await getSupabaseAdmin().from("company_configs").select("*").order("company_name", { ascending: true });
+  const { data, error } = await getSupabaseAdmin().from(COMPANY_CONFIGS_TABLE).select("*").order("company_name", { ascending: true });
   if (error) throw new Error(error.message);
   return (data || []).map(fromCompanyRow);
 }
 
 export async function saveCompanyServer(config: FieldFlowCompanyConfig) {
-  const { error } = await getSupabaseAdmin().from("company_configs").upsert(toCompanyRow(config), { onConflict: "slug" });
+  const { error } = await getSupabaseAdmin().from(COMPANY_CONFIGS_TABLE).upsert(toCompanyRow(config), { onConflict: "slug" });
   if (error) throw new Error(error.message);
   await ensureBoardServer(config.slug);
   return fromCompanyRow(toCompanyRow(config));
@@ -186,7 +187,7 @@ export async function deleteCompanyServer(slug: string) {
   const supabase = getSupabaseAdmin();
   await supabase.from("nexus_staff_credentials").delete().eq("slug", slug);
   await supabase.from("nexus_company_data").delete().eq("slug", slug);
-  const { error } = await supabase.from("company_configs").delete().eq("slug", slug);
+  const { error } = await supabase.from(COMPANY_CONFIGS_TABLE).delete().eq("slug", slug);
   if (error) throw new Error(error.message);
 }
 

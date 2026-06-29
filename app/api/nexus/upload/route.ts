@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   const form = await request.formData();
   const slug = String(form.get("slug") || session?.slug || "");
   const file = form.get("file");
-  const bucket = String(form.get("bucket") || "fieldflow-media");
+  const bucket = String(form.get("bucket") || "nexus-media");
 
   if (!canReadCompany(session, slug)) return NextResponse.json({ error: "Not signed into this company." }, { status: 401 });
   if (!(file instanceof File)) return NextResponse.json({ error: "Upload file missing." }, { status: 400 });
@@ -27,4 +27,3 @@ export async function POST(request: Request) {
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
   return NextResponse.json({ url: data.publicUrl });
 }
-

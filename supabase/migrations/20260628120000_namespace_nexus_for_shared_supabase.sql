@@ -1,5 +1,14 @@
--- Nexus schema for the shared Supabase project. Safe to rerun.
--- Browser clients should not write these tables directly.
+-- Prepare this Supabase project to host multiple small apps.
+-- Nexus keeps its own namespace so other apps can add tables safely.
+
+drop table if exists public.fieldflow_requests cascade;
+drop table if exists public.fieldflow_staff cascade;
+drop table if exists public.fieldflow_uploads cascade;
+
+drop table if exists public.nexus_sessions cascade;
+drop table if exists public.nexus_staff_credentials cascade;
+drop table if exists public.nexus_company_data cascade;
+drop table if exists public.company_configs cascade;
 
 create table if not exists public.nexus_company_configs (
   slug text primary key,
